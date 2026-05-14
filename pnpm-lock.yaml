@@ -30,6 +30,9 @@ importers:
       pouchdb:
         specifier: ^9.0.0
         version: 9.0.0
+      pouchdb-adapter-indexeddb:
+        specifier: ^9.0.0
+        version: 9.0.0
       prettier:
         specifier: ^3.3.3
         version: 3.8.3
@@ -3544,6 +3547,27 @@ packages:
   postcss@8.5.14:
     resolution: {integrity: sha512-SoSL4+OSEtR99LHFZQiJLkT59C5B1amGO1NzTwj7TT1qCUgUO6hxOvzkOYxD+vMrXBM3XJIKzokoERdqQq/Zmg==}
     engines: {node: ^10 || ^12 || >=14}
+
+  pouchdb-adapter-indexeddb@9.0.0:
+    resolution: {integrity: sha512-/mcCbnVR0VKwtVZWKf8lVSdADLD0yApjFudu4d+0jeLWAeBSGZBRKYlogz2PGs4uTA7GVc2TXjVCNGUdkCM9ZQ==}
+
+  pouchdb-adapter-utils@9.0.0:
+    resolution: {integrity: sha512-hmbm4ey0HL0vtoY1tRTPIt2FfYjvMh3DWoGGSxXDTS73qTFQ+Fhhi5I0AnN9PcD2omfKQAVXiYks4kkMvlAHqA==}
+
+  pouchdb-binary-utils@9.0.0:
+    resolution: {integrity: sha512-2OMtgDZi82vqs+zNDE0YiYjOaWkYCUcZJZKK3WkRr+XYRu+2B7umJrnygJFhUwoGedBbHSrlQBLhdNV3F1AX1A==}
+
+  pouchdb-errors@9.0.0:
+    resolution: {integrity: sha512-961PSMLhW0UqqdJ566g+CdLZ5pkBJRd6l4WWpCDdD0USvE4xYfYGzv43w7nZZBw1k3Xdy092yqPge7yX/tfnyw==}
+
+  pouchdb-md5@9.0.0:
+    resolution: {integrity: sha512-58xUYBvW3/s+aH0j4uOhhN8yCk0LQ254cxBzI/gbKA9PrfwHpe4zrr0L/ia5ml3A30oH1f8aTnuVMwWDkFcuww==}
+
+  pouchdb-merge@9.0.0:
+    resolution: {integrity: sha512-Xh+TgOZCkGoZpI589btKf/cTiuQ5CsnPl9YpdW4h0cAPusniN6XNsR62F+/HbL9wirI6XTEPHUrk7MsQbk3S3A==}
+
+  pouchdb-utils@9.0.0:
+    resolution: {integrity: sha512-xWZE5c+nAslgmLC8JBZbky8AYgdz7pKtv7KTSi6CD2tuQD0WyNKib0YnhZndeE84dksTeZlqlg56RQHsHoB2LQ==}
 
   pouchdb@9.0.0:
     resolution: {integrity: sha512-6wjFc/PzwaWz86rmMXoqdBlR/fBSkNoWO1mEJO7RZNS6n3xf+fhhXWAWtws741KpLKx84IkmmJ48tp+fhFzj4A==}
@@ -7493,6 +7517,42 @@ snapshots:
       nanoid: 3.3.12
       picocolors: 1.1.1
       source-map-js: 1.2.1
+
+  pouchdb-adapter-indexeddb@9.0.0:
+    dependencies:
+      pouchdb-adapter-utils: 9.0.0
+      pouchdb-binary-utils: 9.0.0
+      pouchdb-errors: 9.0.0
+      pouchdb-md5: 9.0.0
+      pouchdb-merge: 9.0.0
+      pouchdb-utils: 9.0.0
+
+  pouchdb-adapter-utils@9.0.0:
+    dependencies:
+      pouchdb-binary-utils: 9.0.0
+      pouchdb-errors: 9.0.0
+      pouchdb-md5: 9.0.0
+      pouchdb-merge: 9.0.0
+      pouchdb-utils: 9.0.0
+
+  pouchdb-binary-utils@9.0.0: {}
+
+  pouchdb-errors@9.0.0: {}
+
+  pouchdb-md5@9.0.0:
+    dependencies:
+      pouchdb-binary-utils: 9.0.0
+      spark-md5: 3.0.2
+
+  pouchdb-merge@9.0.0:
+    dependencies:
+      pouchdb-utils: 9.0.0
+
+  pouchdb-utils@9.0.0:
+    dependencies:
+      pouchdb-errors: 9.0.0
+      pouchdb-md5: 9.0.0
+      uuid: 8.3.2
 
   pouchdb@9.0.0:
     dependencies:

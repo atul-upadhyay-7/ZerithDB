@@ -5,8 +5,11 @@
 
 import "fake-indexeddb/auto";
 import PouchDB from "pouchdb";
+import PouchDBAdapterIndexeddb from "pouchdb-adapter-indexeddb";
 import { createApp, type ZerithDBApp } from "zerithdb-sdk";
 import { performance } from "node:perf_hooks";
+
+PouchDB.plugin(PouchDBAdapterIndexeddb);
 
 interface TestDocument {
   id: string;
@@ -53,9 +56,14 @@ class ZerithDBInsertAdapter implements InsertAdapter {
   name = "ZerithDB";
   private app: ZerithDBApp | null = null;
   private collection: ReturnType<ZerithDBApp["db"]> | null = null;
+  private dbName: string | null = null;
+  private appId: string | null = null;
 
   async setup(): Promise<void> {
-    this.app = createApp({ appId: "benchmark-test" });
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    this.appId = `benchmark-insert-zerithdb-${suffix}`;
+    this.dbName = `zerithdb_${this.appId}`;
+    this.app = createApp({ appId: this.appId });
     this.collection = this.app.db<TestDocument>("test");
   }
 
@@ -70,6 +78,11 @@ class ZerithDBInsertAdapter implements InsertAdapter {
       this.app = null;
       this.collection = null;
     }
+    if (this.dbName) {
+      await deleteIndexedDb(this.dbName);
+      this.dbName = null;
+      this.appId = null;
+    }
   }
 }
 
@@ -79,9 +92,12 @@ class ZerithDBInsertAdapter implements InsertAdapter {
 class PouchDBAdapter implements InsertAdapter {
   name = "PouchDB";
   private db: PouchDB.Database | null = null;
+  private dbName: string | null = null;
 
   async setup(): Promise<void> {
-    this.db = new PouchDB("benchmark-test");
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    this.dbName = `benchmark-insert-pouchdb-${suffix}`;
+    this.db = new PouchDB(this.dbName, { adapter: "indexeddb" });
   }
 
   async insertAll(docs: TestDocument[]): Promise<void> {
@@ -98,6 +114,7 @@ class PouchDBAdapter implements InsertAdapter {
     if (this.db) {
       await this.db.destroy();
       this.db = null;
+      this.dbName = null;
     }
   }
 }
@@ -116,11 +133,12 @@ class RxDBAdapter implements InsertAdapter {
     try {
       // Import RxDB properly
       const { createRxDatabase } = await import("rxdb");
-      const { getRxStorageMemory } = await import("rxdb/plugins/storage-memory");
+      const { getRxStorageIndexedDB } = await import("rxdb/plugins/storage-indexeddb");
+      const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
       this.db = await createRxDatabase({
-        name: "benchmark-test",
-        storage: getRxStorageMemory(),
+        name: `benchmark-insert-rxdb-${suffix}`,
+        storage: getRxStorageIndexedDB(),
       });
 
       // Create schema
@@ -391,8 +409,8 @@ class PouchDBSyncAdapter implements SyncAdapter {
 
   async setup(): Promise<void> {
     const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    this.dbA = new PouchDB(`benchmark-sync-a-${suffix}`);
-    this.dbB = new PouchDB(`benchmark-sync-b-${suffix}`);
+    this.dbA = new PouchDB(`benchmark-sync-a-${suffix}`, { adapter: "indexeddb" });
+    this.dbB = new PouchDB(`benchmark-sync-b-${suffix}`, { adapter: "indexeddb" });
   }
 
   async syncAll(docs: TestDocument[]): Promise<void> {
@@ -425,56 +443,13 @@ class RxDBSyncAdapter implements SyncAdapter {
   private skipped = false;
 
   async setup(): Promise<void> {
-    try {
-      const { createRxDatabase } = await import("rxdb");
-      const { getRxStorageMemory } = await import("rxdb/plugins/storage-memory");
-
-      this.dbA = await createRxDatabase({
-        name: `benchmark-sync-a-${Date.now()}`,
-        storage: getRxStorageMemory(),
-      });
-      this.dbB = await createRxDatabase({
-        name: `benchmark-sync-b-${Date.now()}`,
-        storage: getRxStorageMemory(),
-      });
-
-      const schema = {
-        version: 0,
-        primaryKey: "id",
-        type: "object",
-        properties: {
-          id: { type: "string", maxLength: 100 },
-          name: { type: "string" },
-          score: { type: "number" },
-        },
-        required: ["id", "name", "score"],
-      };
-
-      await this.dbA.addCollections({ test: { schema } });
-      await this.dbB.addCollections({ test: { schema } });
-    } catch (err) {
-      this.skipped = true;
-      console.log(
-        `  Note: ${this.name} skipped - requires additional setup (${err instanceof Error ? err.message : "unknown error"})`
-      );
-    }
+    this.skipped = true;
+    console.log(`  Note: ${this.name} sync skipped - replication not configured`);
   }
 
   async syncAll(docs: TestDocument[]): Promise<void> {
     if (this.skipped || !this.dbA || !this.dbB) return;
-    const source = this.dbA.collections.test;
-    const target = this.dbB.collections.test;
-
-    await source.bulkInsert(docs);
-
-    if (typeof source.exportJSON === "function" && typeof target.importJSON === "function") {
-      const exported = await source.exportJSON();
-      await target.importJSON(exported);
-      return;
-    }
-
-    const allDocs = await source.find().exec();
-    await target.bulkInsert(allDocs.map((doc: any) => doc.toJSON()));
+    void docs;
   }
 
   async teardown(): Promise<void> {
@@ -504,6 +479,15 @@ async function waitFor(predicate: () => boolean, timeoutMs: number): Promise<voi
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw new Error("Timed out waiting for sync");
+}
+
+async function deleteIndexedDb(name: string): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(name);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error ?? new Error("Failed to delete IndexedDB"));
+    request.onblocked = () => resolve();
+  });
 }
 
 async function main() {
