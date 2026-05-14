@@ -17,3 +17,8 @@ out
 build
 my-test-app/
 test-agent/
+
+# Claude Code
+.claude/
+.claudeignore
+*.claude
