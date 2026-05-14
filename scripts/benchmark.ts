@@ -5,7 +5,6 @@
 
 import "fake-indexeddb/auto";
 import PouchDB from "pouchdb";
-import RxDB from "rxdb";
 import { createApp, type ZerithDBApp } from "zerithdb-sdk";
 import { performance } from "node:perf_hooks";
 
@@ -16,12 +15,19 @@ interface TestDocument {
 }
 
 /**
- * Common DBAdapter interface for benchmarking
+ * Common adapter interfaces for benchmarking
  */
-interface DBAdapter {
+interface InsertAdapter {
   name: string;
   setup(): Promise<void>;
   insertAll(docs: TestDocument[]): Promise<void>;
+  teardown(): Promise<void>;
+}
+
+interface SyncAdapter {
+  name: string;
+  setup(): Promise<void>;
+  syncAll(docs: TestDocument[]): Promise<void>;
   teardown(): Promise<void>;
 }
 
@@ -43,7 +49,7 @@ function generateDataset(count: number): TestDocument[] {
 /**
  * ZerithDB adapter implementation
  */
-class ZerithDBAdapter implements DBAdapter {
+class ZerithDBInsertAdapter implements InsertAdapter {
   name = "ZerithDB";
   private app: ZerithDBApp | null = null;
   private collection: ReturnType<ZerithDBApp["db"]> | null = null;
@@ -70,7 +76,7 @@ class ZerithDBAdapter implements DBAdapter {
 /**
  * PouchDB adapter implementation
  */
-class PouchDBAdapter implements DBAdapter {
+class PouchDBAdapter implements InsertAdapter {
   name = "PouchDB";
   private db: PouchDB.Database | null = null;
 
@@ -101,7 +107,7 @@ class PouchDBAdapter implements DBAdapter {
  * Note: RxDB v17+ requires additional setup for storage in Node.js
  * This adapter uses a simple fallback for demonstration
  */
-class RxDBAdapter implements DBAdapter {
+class RxDBAdapter implements InsertAdapter {
   name = "RxDB";
   private db: any = null;
   private skipped = false;
@@ -109,13 +115,12 @@ class RxDBAdapter implements DBAdapter {
   async setup(): Promise<void> {
     try {
       // Import RxDB properly
-      const { createRxDatabase, addRxPlugin } = await import("rxdb");
+      const { createRxDatabase } = await import("rxdb");
+      const { getRxStorageMemory } = await import("rxdb/plugins/storage-memory");
 
-      // Try to use memory storage - this may need @rxdb/memory plugin in v17+
-      // For now, we'll try using IndexedDB which works with fake-indexeddb
       this.db = await createRxDatabase({
         name: "benchmark-test",
-        storage: "idb", // Use IndexedDB which works with fake-indexeddb
+        storage: getRxStorageMemory(),
       });
 
       // Create schema
@@ -169,12 +174,19 @@ interface BenchmarkResult {
   opsPerSec: number;
 }
 
+interface SyncBenchmarkResult {
+  dbName: string;
+  recordCount: number;
+  totalTimeMs: number;
+  opsPerSec: number;
+}
+
 /**
  * Run benchmark for a single adapter
  * Returns null if the adapter was skipped
  */
-async function runBenchmark(
-  adapter: DBAdapter,
+async function runInsertBenchmark(
+  adapter: InsertAdapter,
   docs: TestDocument[]
 ): Promise<BenchmarkResult | null> {
   try {
@@ -213,7 +225,49 @@ async function runBenchmark(
     };
   } catch (err) {
     // If benchmark fails, log and return null
-    console.log(`  Warning: ${adapter.name} benchmark failed - ${err instanceof Error ? err.message : 'unknown error'}`);
+      console.log(
+        `  Warning: ${adapter.name} insert benchmark failed - ${err instanceof Error ? err.message : "unknown error"}`
+      );
+    try {
+      await adapter.teardown();
+    } catch {
+      // Ignore cleanup errors
+    }
+    return null;
+  }
+}
+
+async function runSyncBenchmark(
+  adapter: SyncAdapter,
+  docs: TestDocument[]
+): Promise<SyncBenchmarkResult | null> {
+  try {
+    await adapter.setup();
+
+    if ((adapter as any).skipped) {
+      await adapter.teardown();
+      return null;
+    }
+
+    const startTime = performance.now();
+    await adapter.syncAll(docs);
+    const endTime = performance.now();
+
+    const totalTimeMs = endTime - startTime;
+    const opsPerSec = totalTimeMs > 0 ? (docs.length / totalTimeMs) * 1000 : 0;
+
+    await adapter.teardown();
+
+    return {
+      dbName: adapter.name,
+      recordCount: docs.length,
+      totalTimeMs: Math.round(totalTimeMs * 100) / 100,
+      opsPerSec: Math.round(opsPerSec),
+    };
+  } catch (err) {
+    console.log(
+      `  Warning: ${adapter.name} sync benchmark failed - ${err instanceof Error ? err.message : "unknown error"}`
+    );
     try {
       await adapter.teardown();
     } catch {
@@ -272,6 +326,186 @@ function printTable(results: BenchmarkResult[], batchSizes: number[]): void {
 /**
  * Main benchmark execution
  */
+class ZerithDBSyncAdapter implements SyncAdapter {
+  name = "ZerithDB";
+  private appA: ZerithDBApp | null = null;
+  private appB: ZerithDBApp | null = null;
+  private unsubscribers: Array<() => void> = [];
+
+  async setup(): Promise<void> {
+    this.appA = createApp({ appId: `benchmark-sync-a-${Date.now()}` });
+    this.appB = createApp({ appId: `benchmark-sync-b-${Date.now()}` });
+
+    this.appA.sync.enable();
+    this.appB.sync.enable();
+
+    const handleA = (evt: { collectionName: string; update: Uint8Array }) => {
+      this.appB?.sync.applyRemoteUpdate(evt.collectionName, evt.update, "peer-a");
+    };
+    const handleB = (evt: { collectionName: string; update: Uint8Array }) => {
+      this.appA?.sync.applyRemoteUpdate(evt.collectionName, evt.update, "peer-b");
+    };
+
+    this.appA.sync.on("update:local", handleA);
+    this.appB.sync.on("update:local", handleB);
+
+    this.unsubscribers.push(() => this.appA?.sync.off("update:local", handleA));
+    this.unsubscribers.push(() => this.appB?.sync.off("update:local", handleB));
+  }
+
+  async syncAll(docs: TestDocument[]): Promise<void> {
+    const docA = this.appA?.sync.getDoc("test");
+    const docB = this.appB?.sync.getDoc("test");
+    if (!docA || !docB) return;
+
+    const mapA = docA.getMap<TestDocument>("records");
+    const mapB = docB.getMap<TestDocument>("records");
+
+    for (const doc of docs) {
+      mapA.set(doc.id, doc);
+    }
+
+    await waitFor(() => mapB.size >= docs.length, 10_000);
+  }
+
+  async teardown(): Promise<void> {
+    for (const unsub of this.unsubscribers) {
+      unsub();
+    }
+    this.unsubscribers = [];
+    if (this.appA) {
+      await this.appA.dispose();
+      this.appA = null;
+    }
+    if (this.appB) {
+      await this.appB.dispose();
+      this.appB = null;
+    }
+  }
+}
+
+class PouchDBSyncAdapter implements SyncAdapter {
+  name = "PouchDB";
+  private dbA: PouchDB.Database | null = null;
+  private dbB: PouchDB.Database | null = null;
+
+  async setup(): Promise<void> {
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    this.dbA = new PouchDB(`benchmark-sync-a-${suffix}`);
+    this.dbB = new PouchDB(`benchmark-sync-b-${suffix}`);
+  }
+
+  async syncAll(docs: TestDocument[]): Promise<void> {
+    const pouchDocs = docs.map((doc) => ({
+      _id: doc.id,
+      name: doc.name,
+      score: doc.score,
+    }));
+
+    await this.dbA!.bulkDocs(pouchDocs);
+    await this.dbA!.replicate.to(this.dbB!);
+  }
+
+  async teardown(): Promise<void> {
+    if (this.dbA) {
+      await this.dbA.destroy();
+      this.dbA = null;
+    }
+    if (this.dbB) {
+      await this.dbB.destroy();
+      this.dbB = null;
+    }
+  }
+}
+
+class RxDBSyncAdapter implements SyncAdapter {
+  name = "RxDB";
+  private dbA: any = null;
+  private dbB: any = null;
+  private skipped = false;
+
+  async setup(): Promise<void> {
+    try {
+      const { createRxDatabase } = await import("rxdb");
+      const { getRxStorageMemory } = await import("rxdb/plugins/storage-memory");
+
+      this.dbA = await createRxDatabase({
+        name: `benchmark-sync-a-${Date.now()}`,
+        storage: getRxStorageMemory(),
+      });
+      this.dbB = await createRxDatabase({
+        name: `benchmark-sync-b-${Date.now()}`,
+        storage: getRxStorageMemory(),
+      });
+
+      const schema = {
+        version: 0,
+        primaryKey: "id",
+        type: "object",
+        properties: {
+          id: { type: "string", maxLength: 100 },
+          name: { type: "string" },
+          score: { type: "number" },
+        },
+        required: ["id", "name", "score"],
+      };
+
+      await this.dbA.addCollections({ test: { schema } });
+      await this.dbB.addCollections({ test: { schema } });
+    } catch (err) {
+      this.skipped = true;
+      console.log(
+        `  Note: ${this.name} skipped - requires additional setup (${err instanceof Error ? err.message : "unknown error"})`
+      );
+    }
+  }
+
+  async syncAll(docs: TestDocument[]): Promise<void> {
+    if (this.skipped || !this.dbA || !this.dbB) return;
+    const source = this.dbA.collections.test;
+    const target = this.dbB.collections.test;
+
+    await source.bulkInsert(docs);
+
+    if (typeof source.exportJSON === "function" && typeof target.importJSON === "function") {
+      const exported = await source.exportJSON();
+      await target.importJSON(exported);
+      return;
+    }
+
+    const allDocs = await source.find().exec();
+    await target.bulkInsert(allDocs.map((doc: any) => doc.toJSON()));
+  }
+
+  async teardown(): Promise<void> {
+    if (this.dbA) {
+      try {
+        await this.dbA.destroy();
+      } catch {
+        // Ignore cleanup errors
+      }
+      this.dbA = null;
+    }
+    if (this.dbB) {
+      try {
+        await this.dbB.destroy();
+      } catch {
+        // Ignore cleanup errors
+      }
+      this.dbB = null;
+    }
+  }
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs: number): Promise<void> {
+  const start = performance.now();
+  while (performance.now() - start < timeoutMs) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("Timed out waiting for sync");
+}
+
 async function main() {
   console.log("Local-First Database Benchmark");
   console.log("================================");
@@ -284,28 +518,34 @@ async function main() {
   const batchSizes = [100, 500, 1000];
 
   // Create adapters
-  const adapters: DBAdapter[] = [
-    new ZerithDBAdapter(),
+  const insertAdapters: InsertAdapter[] = [
+    new ZerithDBInsertAdapter(),
     new PouchDBAdapter(),
     new RxDBAdapter(),
   ];
 
-  // Run benchmarks
-  const allResults: BenchmarkResult[] = [];
+  const syncAdapters: SyncAdapter[] = [
+    new ZerithDBSyncAdapter(),
+    new PouchDBSyncAdapter(),
+    new RxDBSyncAdapter(),
+  ];
 
-  for (const adapter of adapters) {
-    console.log(`\nBenchmarking ${adapter.name}...`);
+  // Run insert benchmarks
+  const insertResults: BenchmarkResult[] = [];
+  console.log("\nInsert Benchmark");
+  console.log("----------------");
+
+  for (const adapter of insertAdapters) {
+    console.log(`\nBenchmarking ${adapter.name} inserts...`);
 
     for (const batchSize of batchSizes) {
-      // Slice the appropriate number of documents
       const docs = fullDataset.slice(0, batchSize);
 
       console.log(`  Inserting ${batchSize} records...`);
-      const result = await runBenchmark(adapter, docs);
+      const result = await runInsertBenchmark(adapter, docs);
 
-      // Only add valid results (skip null results from failed/skipped adapters)
       if (result !== null) {
-        allResults.push(result);
+        insertResults.push(result);
         console.log(
           `    -> ${result.totalTimeMs}ms (${result.opsPerSec.toLocaleString()} ops/sec)`
         );
@@ -313,11 +553,39 @@ async function main() {
     }
   }
 
-  // Print results table only if we have results
-  if (allResults.length > 0) {
-    printTable(allResults, batchSizes);
+  if (insertResults.length > 0) {
+    printTable(insertResults, batchSizes);
   } else {
-    console.log("\nNo benchmark results to display.");
+    console.log("\nNo insert results to display.");
+  }
+
+  // Run sync benchmarks
+  const syncResults: SyncBenchmarkResult[] = [];
+  console.log("\nSync Benchmark");
+  console.log("--------------");
+
+  for (const adapter of syncAdapters) {
+    console.log(`\nBenchmarking ${adapter.name} sync...`);
+
+    for (const batchSize of batchSizes) {
+      const docs = fullDataset.slice(0, batchSize);
+
+      console.log(`  Syncing ${batchSize} records...`);
+      const result = await runSyncBenchmark(adapter, docs);
+
+      if (result !== null) {
+        syncResults.push(result);
+        console.log(
+          `    -> ${result.totalTimeMs}ms (${result.opsPerSec.toLocaleString()} ops/sec)`
+        );
+      }
+    }
+  }
+
+  if (syncResults.length > 0) {
+    printTable(syncResults, batchSizes);
+  } else {
+    console.log("\nNo sync results to display.");
   }
 
   console.log("\nBenchmark complete!");
