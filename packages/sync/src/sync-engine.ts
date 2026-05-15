@@ -4,6 +4,8 @@ import type { ZerithDBConfig, SyncState } from "zerithdb-core";
 import { EventEmitter } from "zerithdb-core";
 import type { DbClient } from "zerithdb-db";
 import type { NetworkManager } from "zerithdb-network";
+import { InboxQueue } from "./queue/InboxQueue.js";
+import { OutboxQueue } from "./queue/OutboxQueue.js";
 
 type SyncEvents = {
   "state:change": SyncState;
@@ -19,6 +21,8 @@ type SyncEvents = {
 export class SyncEngine extends EventEmitter<SyncEvents> {
   private readonly docs = new Map<string, Y.Doc>();
   private readonly persistences = new Map<string, IndexeddbPersistence>();
+  readonly outbox: OutboxQueue<Uint8Array>;
+  readonly inbox: InboxQueue<Uint8Array>;
   private _enabled = false;
   private _state: SyncState = { synced: false, pendingUpdates: 0, connectedPeers: 0 };
 
@@ -28,7 +32,16 @@ export class SyncEngine extends EventEmitter<SyncEvents> {
     private readonly network: NetworkManager
   ) {
     super();
+    this.outbox = new OutboxQueue(config.appId);
+    this.inbox = new InboxQueue(config.appId);
     this.onPeerUpdate = this.onPeerUpdate.bind(this);
+    this.onPeerConnected = this.onPeerConnected.bind(this);
+    this.onPeerDisconnected = this.onPeerDisconnected.bind(this);
+
+    this.outbox.onChange(() => {
+      void this.refreshPendingCount();
+    });
+    void this.refreshPendingCount();
   }
 
   /**
@@ -39,14 +52,19 @@ export class SyncEngine extends EventEmitter<SyncEvents> {
     if (this._enabled) return;
     this._enabled = true;
     this.network.on("message", this.onPeerUpdate);
-    this.updateState({ synced: true });
+    this.network.on("peer:connected", this.onPeerConnected);
+    this.network.on("peer:disconnected", this.onPeerDisconnected);
+    this.updateState({ synced: true, connectedPeers: this.network.connectedPeerCount });
+    void this.flushOutbox();
   }
 
   /** Disable sync without disconnecting from peers */
   disable(): void {
     this._enabled = false;
     this.network.off("message", this.onPeerUpdate);
-    this.updateState({ synced: false });
+    this.network.off("peer:connected", this.onPeerConnected);
+    this.network.off("peer:disconnected", this.onPeerDisconnected);
+    this.updateState({ synced: false, connectedPeers: 0 });
   }
 
   /** Current sync state snapshot */
@@ -76,13 +94,7 @@ export class SyncEngine extends EventEmitter<SyncEvents> {
     // Broadcast local updates to peers
     doc.on("update", (update: Uint8Array, origin: unknown) => {
       if (origin === "remote") return; // Don't echo back remote updates
-      if (!this._enabled) return;
-
-      this.emit("update:local", { collectionName, update });
-      this.network.broadcast({
-        type: "sync-update",
-        payload: this.encodeMessage(collectionName, update),
-      });
+      void this.handleLocalUpdate(collectionName, update);
     });
 
     this.docs.set(collectionName, doc);
@@ -96,7 +108,7 @@ export class SyncEngine extends EventEmitter<SyncEvents> {
   applyRemoteUpdate(collectionName: string, update: Uint8Array, fromPeer: string): void {
     const doc = this.getDoc(collectionName);
     Y.applyUpdate(doc, update, "remote");
-    this.emit("update:remote", { collectionName, update, fromPeer });
+    void this.handleRemoteUpdate(collectionName, update, fromPeer);
   }
 
   async dispose(): Promise<void> {
@@ -122,6 +134,69 @@ export class SyncEngine extends EventEmitter<SyncEvents> {
     if (decoded === null) return;
 
     this.applyRemoteUpdate(decoded.collectionName, decoded.update, msg.from);
+  }
+
+  private onPeerConnected(): void {
+    this.updateState({ connectedPeers: this.network.connectedPeerCount });
+    void this.flushOutbox();
+  }
+
+  private onPeerDisconnected(): void {
+    this.updateState({ connectedPeers: this.network.connectedPeerCount });
+  }
+
+  private async handleLocalUpdate(collectionName: string, update: Uint8Array): Promise<void> {
+    try {
+      const mutation = await this.outbox.enqueue({
+        type: "sync-update",
+        collection: collectionName,
+        payload: update,
+      });
+
+      if (!this._enabled) return;
+
+      this.emit("update:local", { collectionName, update });
+      if (this.network.connectedPeerCount === 0) return;
+
+      this.network.broadcast({
+        type: "sync-update",
+        payload: this.encodeMessage(collectionName, update),
+      });
+
+      await this.outbox.acknowledge(mutation.id);
+    } catch {
+      // Swallow queue errors to avoid breaking update propagation.
+    }
+  }
+
+  private async handleRemoteUpdate(
+    collectionName: string,
+    update: Uint8Array,
+    fromPeer: string
+  ): Promise<void> {
+    try {
+      await this.inbox.enqueue({
+        type: "sync-update",
+        collection: collectionName,
+        payload: update,
+      });
+    } finally {
+      this.emit("update:remote", { collectionName, update, fromPeer });
+    }
+  }
+
+  private async flushOutbox(): Promise<void> {
+    if (!this._enabled) return;
+    if (this.network.connectedPeerCount === 0) return;
+
+    const pending = await this.outbox.getPending();
+    for (const mutation of pending) {
+      this.network.broadcast({
+        type: mutation.type,
+        payload: this.encodeMessage(mutation.collection, mutation.payload),
+      });
+      await this.outbox.acknowledge(mutation.id);
+    }
   }
 
   private encodeMessage(collectionName: string, update: Uint8Array): string {
@@ -155,6 +230,11 @@ export class SyncEngine extends EventEmitter<SyncEvents> {
   private updateState(partial: Partial<SyncState>): void {
     this._state = { ...this._state, ...partial };
     this.emit("state:change", this._state);
+  }
+
+  private async refreshPendingCount(): Promise<void> {
+    const pending = await this.outbox.count();
+    this.updateState({ pendingUpdates: pending });
   }
 }
 

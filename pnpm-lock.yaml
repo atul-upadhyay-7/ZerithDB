@@ -367,6 +367,9 @@ importers:
 
   packages/sync:
     dependencies:
+      dexie:
+        specifier: ^4.0.8
+        version: 4.4.2
       lib0:
         specifier: ^0.2.98
         version: 0.2.117
