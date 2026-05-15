@@ -55,7 +55,7 @@ export abstract class BaseQueue<TPayload = unknown> {
     if (!existing) return null;
 
     const mutation = { ...existing, status: "acknowledged" as const };
-    await this.table.put(mutation);
+    await this.table.delete(id);
     this.events.emit("change", { action: "acknowledge", mutation });
     return mutation;
   }
