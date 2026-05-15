@@ -106,8 +106,6 @@ export class SyncEngine extends EventEmitter<SyncEvents> {
    * Called by the network layer when a peer sends an update.
    */
   applyRemoteUpdate(collectionName: string, update: Uint8Array, fromPeer: string): void {
-    const doc = this.getDoc(collectionName);
-    Y.applyUpdate(doc, update, "remote");
     void this.handleRemoteUpdate(collectionName, update, fromPeer);
   }
 
@@ -174,14 +172,30 @@ export class SyncEngine extends EventEmitter<SyncEvents> {
     update: Uint8Array,
     fromPeer: string
   ): Promise<void> {
+    let mutationId: string | null = null;
+
     try {
-      await this.inbox.enqueue({
+      const mutation = await this.inbox.enqueue({
         type: "sync-update",
         collection: collectionName,
         payload: update,
       });
-    } finally {
+      mutationId = mutation.id;
+    } catch {
+      // If queue persistence fails, still apply the update.
+    }
+
+    try {
+      const doc = this.getDoc(collectionName);
+      Y.applyUpdate(doc, update, "remote");
+      if (mutationId) {
+        await this.inbox.acknowledge(mutationId);
+      }
       this.emit("update:remote", { collectionName, update, fromPeer });
+    } catch {
+      if (mutationId) {
+        await this.inbox.markFailed(mutationId);
+      }
     }
   }
 
