@@ -67,27 +67,33 @@ export async function signInWithAuth0(config: Auth0Config): Promise<ZerithAuth0I
 }
 
 export async function verifyAuth0Token(token: string, config: Auth0Config): Promise<boolean> {
+  let decoded: ReturnType<typeof decodeJwt>;
   try {
-    const { header, payload, signature, signingInput } = decodeJwt(token);
-    if (header.alg !== "RS256" || !header.kid) return false;
-    if (!validateClaims(payload, config)) return false;
-
-    const jwk = await getJwk(config.domain, header.kid);
-    if (!jwk || !globalThis.crypto?.subtle) return false;
-
-    const key = await crypto.subtle.importKey(
-      "jwk",
-      jwk,
-      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-      false,
-      ["verify"]
-    );
-
-    const data = new TextEncoder().encode(signingInput);
-    return await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, signature, data);
+    decoded = decodeJwt(token);
   } catch {
     return false;
   }
+
+  const { header, payload, signature, signingInput } = decoded;
+  if (header.alg !== "RS256" || !header.kid) return false;
+  if (!validateClaims(payload, config)) return false;
+
+  const jwk = await getJwk(config.domain, header.kid);
+  if (!jwk) return false;
+  if (!globalThis.crypto?.subtle) {
+    throw new Error("WebCrypto is unavailable.");
+  }
+
+  const key = await crypto.subtle.importKey(
+    "jwk",
+    jwk,
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["verify"]
+  );
+
+  const data = new TextEncoder().encode(signingInput);
+  return await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, signature, data);
 }
 
 export type { Auth0Config, ZerithAuth0Identity } from "./types.js";
