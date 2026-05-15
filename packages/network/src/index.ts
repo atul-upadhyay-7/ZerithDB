@@ -1,1 +1,1 @@
-export { NetworkManager } from "./network-manager.js";
+export { NetworkManager, type WebRtcBufferStats } from "./network-manager.js";

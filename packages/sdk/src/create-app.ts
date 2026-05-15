@@ -1,4 +1,5 @@
 import type { ZerithDBConfig } from "zerithdb-core";
+import { MemoryCollector, estimateStorageBytes } from "zerithdb-devtools";
 import { DbClient, CollectionClient } from "./db-client.js";
 import { SyncEngine } from "./sync-engine.js";
 import { AuthManager } from "./auth-manager.js";
@@ -59,6 +60,7 @@ export interface ZerithDBApp {
  * const app = createApp({
  *   appId: "my-todo-app",
  *   sync: { signalingUrl: "wss://signal.zerithdb.dev" },
+ *   debug: { devtools: true },
  * });
  *
  * await app.db("todos").insert({ text: "Ship ZerithDB v1", done: false });
@@ -92,6 +94,25 @@ export function createApp(config: ZerithDBConfig): ZerithDBApp {
 
   const collectionCache = new Map<string, CollectionClient<any>>();
 
+  let memoryCollector: MemoryCollector | null = null;
+  if (resolvedConfig.debug?.devtools === true) {
+    memoryCollector = new MemoryCollector({
+      measureIndexedDB: async () => {
+        const [totalBytes, dbStats] = await Promise.all([
+          estimateStorageBytes(),
+          db.getMemoryStats(),
+        ]);
+        return {
+          totalBytes,
+          recordCount: dbStats.recordCount,
+          collections: dbStats.collections,
+        };
+      },
+      measureWebRTC: () => network.getBufferStats(),
+    });
+    memoryCollector.start();
+  }
+
   return {
     config: Object.freeze(resolvedConfig),
 
@@ -108,6 +129,7 @@ export function createApp(config: ZerithDBConfig): ZerithDBApp {
     network,
 
     async dispose(): Promise<void> {
+      memoryCollector?.stop();
       await Promise.all([sync.dispose(), network.dispose(), db.dispose()]);
     },
   };

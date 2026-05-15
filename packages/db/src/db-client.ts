@@ -243,6 +243,22 @@ export class DbClient {
     return this.collections.get(name) as CollectionClient<T>;
   }
 
+  /**
+   * Returns per-collection document counts for DevTools memory reporting.
+   */
+  async getMemoryStats(): Promise<{ recordCount: number; collections: Record<string, number> }> {
+    const collections: Record<string, number> = {};
+    let recordCount = 0;
+
+    for (const [name, client] of this.collections) {
+      const count = await client.count();
+      collections[name] = count;
+      recordCount += count;
+    }
+
+    return { recordCount, collections };
+  }
+
   async dispose(): Promise<void> {
     this.dexie.close();
   }
