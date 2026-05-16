@@ -5,7 +5,14 @@ const PORT = parseInt(process.env["PORT"] ?? "4000", 10);
 const HOST = process.env["HOST"] ?? "0.0.0.0";
 type LogLevel = "debug" | "info" | "warn" | "error";
 
-const LOG_LEVEL = (process.env["LOG_LEVEL"] ?? "info") as LogLevel;
+const validLogLevels: LogLevel[] = ["debug", "info", "warn", "error"];
+
+const envLogLevel = process.env["LOG_LEVEL"];
+
+const LOG_LEVEL: LogLevel =
+  envLogLevel && validLogLevels.includes(envLogLevel as LogLevel)
+    ? (envLogLevel as LogLevel)
+    : "info";
 const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
   debug: 0,
   info: 1,
@@ -81,12 +88,16 @@ wss.on("connection", (ws, req) => {
 
   // Relay messages between peers
   ws.on("message", (data) => {
+    logger.debug(
+      `[MESSAGE] peer=${peerId} room=${roomId}`
+    );
     let msg: { to?: string; from?: string; [key: string]: unknown };
     try {
       msg = JSON.parse(data.toString());
     } catch {
-      return; // Ignore malformed messages
-    }
+        logger.warn(`[!] Invalid message from peer=${peerId}`);
+        return;
+      }
 
     // Stamp the sender
     msg.from = peerId;
@@ -94,12 +105,18 @@ wss.on("connection", (ws, req) => {
     const serialized = JSON.stringify(msg);
 
     if (msg["to"] !== undefined) {
+      logger.debug(
+        `[UNICAST] from=${peerId} to=${msg["to"]}`
+      );
       // Unicast to a specific peer
       const target = [...room].find((p) => p.peerId === msg["to"]);
       if (target?.ws.readyState === WebSocket.OPEN) {
         target.ws.send(serialized);
       }
     } else {
+      logger.debug(
+        `[BROADCAST] from=${peerId} room=${roomId}`
+      );
       // Broadcast to all peers in the room except sender
       for (const peer of room) {
         if (peer.peerId !== peerId && peer.ws.readyState === WebSocket.OPEN) {
@@ -127,7 +144,9 @@ wss.on("connection", (ws, req) => {
   });
 
   ws.on("error", (err) => {
-    logger.error(`[!] peer=${peerId} error:`, err.message);
+    logger.error(
+      `[!] peer=${peerId} error=${err.message}`
+    );
     room.delete(peerEntry);
   });
 });
