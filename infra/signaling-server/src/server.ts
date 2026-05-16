@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "http";
 
 const PORT = parseInt(process.env["PORT"] ?? "4000", 10);
 const HOST = process.env["HOST"] ?? "0.0.0.0";
+const SERVER_START_TIME = Date.now();
 
 // ─── Shared room state ──────────────────────────────────────────────────────
 
@@ -65,15 +66,21 @@ const server = createServer((req, res) => {
   const pathname = url.pathname;
 
   // Health check (existing behavior)
-  if (pathname === "/" && req.method === "GET") {
+  if ((pathname === "/" || pathname === "/health") && req.method === "GET") {
+    const uptimeSeconds = Math.floor((Date.now() - SERVER_START_TIME) / 1000);
+
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(
       JSON.stringify({
+        status: "ok",
         service: "zerithdb-signaling",
         version: "0.1.0",
+        uptime_seconds: uptimeSeconds,
+        active_ws_connections: wss.clients.size,
+        active_polling_sessions: pollingSessions.size,
         rooms: rooms.size,
         peers: [...rooms.values()].reduce((acc, s) => acc + s.size, 0),
-        pollingSessions: pollingSessions.size,
+        timestamp: new Date().toISOString(),
       })
     );
     return;
