@@ -11,6 +11,21 @@ import { performance } from "node:perf_hooks";
 
 PouchDB.plugin(PouchDBAdapterIndexeddb);
 
+/**
+ * Simple seeded PRNG (Mulberry32)
+ */
+function mulberry32(a: number) {
+  return function () {
+    let t = (a += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const SEED = process.env.BENCHMARK_SEED ? parseInt(process.env.BENCHMARK_SEED, 10) : 12345;
+const random = mulberry32(SEED);
+
 interface TestDocument {
   id: string;
   name: string;
@@ -43,7 +58,7 @@ function generateDataset(count: number): TestDocument[] {
     docs.push({
       id: `doc_${i}`,
       name: `Document ${i}`,
-      score: Math.floor(Math.random() * 100),
+      score: Math.floor(random() * 100),
     });
   }
   return docs;
@@ -60,7 +75,7 @@ class ZerithDBInsertAdapter implements InsertAdapter {
   private appId: string | null = null;
 
   async setup(): Promise<void> {
-    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const suffix = `${Date.now()}_${random().toString(36).slice(2)}`;
     this.appId = `benchmark-insert-zerithdb-${suffix}`;
     this.dbName = `zerithdb_${this.appId}`;
     this.app = createApp({ appId: this.appId });
@@ -95,7 +110,7 @@ class PouchDBAdapter implements InsertAdapter {
   private dbName: string | null = null;
 
   async setup(): Promise<void> {
-    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const suffix = `${Date.now()}_${random().toString(36).slice(2)}`;
     this.dbName = `benchmark-insert-pouchdb-${suffix}`;
     this.db = new PouchDB(this.dbName, { adapter: "indexeddb" });
   }
@@ -134,7 +149,7 @@ class RxDBAdapter implements InsertAdapter {
       // Import RxDB properly
       const { createRxDatabase } = await import("rxdb");
       const { getRxStorageIndexedDB } = await import("rxdb/plugins/storage-indexeddb");
-      const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const suffix = `${Date.now()}_${random().toString(36).slice(2)}`;
 
       this.db = await createRxDatabase({
         name: `benchmark-insert-rxdb-${suffix}`,
@@ -420,7 +435,7 @@ class PouchDBSyncAdapter implements SyncAdapter {
   private dbB: PouchDB.Database | null = null;
 
   async setup(): Promise<void> {
-    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const suffix = `${Date.now()}_${random().toString(36).slice(2)}`;
     this.dbA = new PouchDB(`benchmark-sync-a-${suffix}`, { adapter: "indexeddb" });
     this.dbB = new PouchDB(`benchmark-sync-b-${suffix}`, { adapter: "indexeddb" });
   }
