@@ -116,23 +116,16 @@ export async function initCommand(
   console.log(`
 ${chalk.green("✔")} ${chalk.bold("Your ZerithDB app is ready!")}
 
-${chalk.gray("Project:")} ${chalk.cyan(appName)}
-${chalk.gray("Template:")} ${chalk.cyan(TEMPLATES[template] ?? template)}
+  ${chalk.gray("Get started:")}
+  ${chalk.cyan(`1. cd "${appName}"`)}
+  ${chalk.cyan("2. npm run dev")}
 
-${chalk.gray("Next steps:")}
-  ${chalk.cyan(`cd ${appName}`)}
-  ${chalk.cyan("npm run dev")}
+  ${chalk.gray("What's next:")}
+  - Open ${chalk.blue("src/app/page.tsx")} to see the ZerithDB SDK in action.
+  - Check out the ${chalk.blue("Live Playground")} at https://zerithdb.dev/playground
+  - Need help? Join our ${chalk.blue("Discord")}: https://discord.gg/MhvuDvzWfF
 
-${chalk.gray("Local development:")}
-  ${chalk.cyan("http://localhost:3000")}
-
-${chalk.gray("Available commands:")}
-  ${chalk.cyan("npm run dev")}    Start development server
-  ${chalk.cyan("npm run build")}  Create production build
-  ${chalk.cyan("npm run start")}  Start production server
-
-${chalk.gray("Docs:")} https://zerithdb.dev/docs
-${chalk.gray("Discord:")} https://discord.gg/MhvuDvzWfF
+  ${chalk.gray("Documentation:")} https://zerithdb.dev/docs
 `);
 }
 
