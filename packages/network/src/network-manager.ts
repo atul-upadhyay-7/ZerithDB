@@ -6,6 +6,18 @@ import type { SignalingTransport } from "./signaling-transport.js";
 import { WebSocketTransport } from "./transports/websocket-transport.js";
 import { PollingTransport } from "./transports/polling-transport.js";
 
+export interface WebRtcBufferStats {
+  peerCount: number;
+  bufferedBytes: number;
+  peers: Array<{ peerId: PeerId; bufferedAmount: number }>;
+}
+
+/** simple-peer exposes the underlying RTCDataChannel as a private field */
+interface SimplePeerWithChannel {
+  connected: boolean;
+  _channel?: RTCDataChannel;
+}
+
 type NetworkEvents = {
   "peer:connected": PeerInfo;
   "peer:disconnected": { peerId: PeerId };
@@ -170,6 +182,30 @@ export class NetworkManager extends EventEmitter<NetworkEvents> {
   /** List of all connected peer infos */
   get connectedPeers(): PeerInfo[] {
     return [...this.peerInfo.values()];
+  }
+
+  /**
+   * Reads `bufferedAmount` from each peer's WebRTC data channel.
+   * Used by the DevTools memory collector.
+   */
+  getBufferStats(): WebRtcBufferStats {
+    const peers: WebRtcBufferStats["peers"] = [];
+    let bufferedBytes = 0;
+
+    for (const [peerId, peer] of this.peers) {
+      const channel = (peer as SimplePeerWithChannel)._channel;
+      if (!peer.connected || channel === undefined) continue;
+
+      const bufferedAmount = channel.bufferedAmount;
+      peers.push({ peerId, bufferedAmount });
+      bufferedBytes += bufferedAmount;
+    }
+
+    return {
+      peerCount: peers.length,
+      bufferedBytes,
+      peers,
+    };
   }
 
   async dispose(): Promise<void> {

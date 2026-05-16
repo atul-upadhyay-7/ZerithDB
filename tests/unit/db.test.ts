@@ -3,19 +3,23 @@ import "fake-indexeddb/auto";
 import { DbClient } from "../../packages/db/src/db-client.js";
 import type { ZerithDBConfig } from "../../packages/core/src/index.js";
 
-const testConfig: ZerithDBConfig = {
-  appId: "test-db-" + Math.random().toString(36).slice(2),
-};
-
 describe("DbClient — CollectionClient", () => {
   let db: DbClient;
+  let currentAppId: string;
 
   beforeEach(() => {
-    db = new DbClient(testConfig);
+    currentAppId = "test-db-" + Math.random().toString(36).slice(2);
+    db = new DbClient({ appId: currentAppId });
   });
 
   afterEach(async () => {
     await db.dispose();
+    const req = indexedDB.deleteDatabase(`zerithdb_${currentAppId}`);
+    await new Promise<void>((resolve) => {
+      req.onsuccess = () => resolve();
+      req.onerror = () => resolve();
+      req.onblocked = () => resolve();
+    });
   });
 
   describe("insert()", () => {
@@ -168,14 +172,20 @@ describe("DbClient — CollectionClient", () => {
 
     it("should not clear other collections", async () => {
       const tasks = db.collection<{ done: boolean }>("tasks");
-      const notes = db.collection<{ text: string }>("notes");
       await tasks.insertMany([{ done: true }, { done: false }]);
+
+      // Use a separate client instance for the second collection to avoid 
+      // internal Dexie state conflicts during dynamic schema upgrades
+      const db2 = new DbClient({ appId: currentAppId });
+      const notes = db2.collection<{ text: string }>("notes");
       await notes.insert({ text: "keep me" });
 
       await tasks.clearAll();
 
       expect(await tasks.count()).toBe(0);
       expect(await notes.count()).toBe(1);
+
+      await db2.dispose();
     });
   });
 

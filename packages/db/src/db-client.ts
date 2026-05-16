@@ -212,6 +212,8 @@ export class CollectionClient<T extends Record<string, any> = Record<string, any
 
 class ZerithDBDexie extends Dexie {
   private readonly tableMap = new Map<string, Table>();
+  private _currentSchema: Record<string, string> = {};
+  private _pendingVersion = 0;
 
   constructor(appId: string) {
     super(`zerithdb_${appId}`);
@@ -219,14 +221,17 @@ class ZerithDBDexie extends Dexie {
 
   ensureCollection(name: string): Table {
     if (!this.tableMap.has(name)) {
-      // Dexie requires version upgrade to add tables — we use a dynamic schema pattern
-      const version = (this.verno ?? 0) + 1;
-      const existingTableNames = this.tableMap.keys();
-      const schema: Record<string, string> = { [name]: "_id, _createdAt, _updatedAt" };
-      for (const existingName of existingTableNames) {
-        schema[existingName] = "_id, _createdAt, _updatedAt";
+      this._currentSchema[name] = "_id, _createdAt, _updatedAt";
+      
+      // We must increment the version for every new collection added dynamically
+      const nextVersion = Math.max(this.verno, this._pendingVersion) + 1;
+      this._pendingVersion = nextVersion;
+
+      if (this.isOpen()) {
+        this.close();
       }
-      this.version(version).stores(schema);
+
+      this.version(nextVersion).stores(this._currentSchema);
       this.tableMap.set(name, this.table(name));
     }
     // biome-ignore lint: map guarantees this is defined
@@ -253,6 +258,22 @@ export class DbClient {
       this.collections.set(name, new CollectionClient<T>(table as Table<Document<T>>, name));
     }
     return this.collections.get(name) as CollectionClient<T>;
+  }
+
+  /**
+   * Returns per-collection document counts for DevTools memory reporting.
+   */
+  async getMemoryStats(): Promise<{ recordCount: number; collections: Record<string, number> }> {
+    const collections: Record<string, number> = {};
+    let recordCount = 0;
+
+    for (const [name, client] of this.collections) {
+      const count = await client.count();
+      collections[name] = count;
+      recordCount += count;
+    }
+
+    return { recordCount, collections };
   }
 
   async dispose(): Promise<void> {
