@@ -1,6 +1,7 @@
 # ZerithDB DevTools Extension
 
-Chrome DevTools panel that visualizes live ZerithDB memory usage: IndexedDB storage and WebRTC send-buffer pressure.
+Chrome DevTools panel that visualizes live ZerithDB memory usage: IndexedDB storage and WebRTC
+send-buffer pressure.
 
 ## Prerequisites
 

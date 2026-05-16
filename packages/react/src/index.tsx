@@ -46,7 +46,10 @@ function useDeepCompareMemoize<T>(value: T) {
  * @param collectionName The name of the collection to query
  * @param filter A MongoDB-style query filter. Must be JSON-serializable.
  */
-export function useQuery<T extends Record<string, any>>(collectionName: string, filter: QueryFilter<T> = {}) {
+export function useQuery<T extends Record<string, any>>(
+  collectionName: string,
+  filter: QueryFilter<T> = {}
+) {
   const app = useZerith();
   const [data, setData] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,11 +59,11 @@ export function useQuery<T extends Record<string, any>>(collectionName: string, 
 
   useEffect(() => {
     const collection = app.db<T>(collectionName);
-    
+
     // Use Dexie's liveQuery to reactively observe local DB changes
     // (which also includes remote P2P updates applied by the sync engine)
     const observable = liveQuery(() => collection.find(memoizedFilter));
-    
+
     const subscription = observable.subscribe({
       next: (docs) => {
         setData(docs as T[]);
@@ -69,7 +72,7 @@ export function useQuery<T extends Record<string, any>>(collectionName: string, 
       error: (err) => {
         setError(err);
         setLoading(false);
-      }
+      },
     });
 
     return () => {
@@ -109,7 +112,7 @@ export function useSync() {
   return {
     state,
     enable: () => app.sync.enable(),
-    disable: () => app.sync.disable()
+    disable: () => app.sync.disable(),
   };
 }
 
