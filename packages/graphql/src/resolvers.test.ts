@@ -20,13 +20,15 @@ function createMockApp() {
       store.set(id, { _id: id, ...doc, _createdAt: 1, _updatedAt: 1 });
       return { id };
     }),
-    update: vi.fn(async (filter: Record<string, unknown>, spec: { $set?: Record<string, unknown> }) => {
-      const id = filter._id as string;
-      const existing = store.get(id);
-      if (!existing) return 0;
-      store.set(id, { ...existing, ...spec.$set, _updatedAt: 2 });
-      return 1;
-    }),
+    update: vi.fn(
+      async (filter: Record<string, unknown>, spec: { $set?: Record<string, unknown> }) => {
+        const id = filter._id as string;
+        const existing = store.get(id);
+        if (!existing) return 0;
+        store.set(id, { ...existing, ...spec.$set, _updatedAt: 2 });
+        return 1;
+      }
+    ),
     delete: vi.fn(async (filter: Record<string, unknown>) => {
       const id = filter._id as string;
       return store.delete(id) ? 1 : 0;

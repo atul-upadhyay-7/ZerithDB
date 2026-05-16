@@ -1,6 +1,8 @@
 # zerithdb-graphql
 
-Auto-generates GraphQL mutation schemas and resolvers from ZerithDB collection definitions. Each collection gets `insert`, `update`, and `delete` mutations that call `app.db(name).insert()`, `.update()`, and `.delete()` under the hood.
+Auto-generates GraphQL mutation schemas and resolvers from ZerithDB collection definitions. Each
+collection gets `insert`, `update`, and `delete` mutations that call `app.db(name).insert()`,
+`.update()`, and `.delete()` under the hood.
 
 ## Install
 
@@ -86,14 +88,15 @@ type Mutation {
 
 ## API
 
-| Export | Description |
-|--------|-------------|
+| Export                              | Description                       |
+| ----------------------------------- | --------------------------------- |
 | `createZerithGraphQL(schemas, app)` | Returns `{ typeDefs, resolvers }` |
-| `generateSchema(schemas)` | SDL string only |
-| `generateResolvers(schemas, app)` | Resolver map only |
+| `generateSchema(schemas)`           | SDL string only                   |
+| `generateResolvers(schemas, app)`   | Resolver map only                 |
 
 ## Field types
 
 Supported scalars: `String`, `Int`, `Float`, `Boolean`, `ID`.
 
-The `id` field maps to ZerithDB's `_id` internally. It is included on output types but omitted from input types (assigned on insert).
+The `id` field maps to ZerithDB's `_id` internally. It is included on output types but omitted from
+input types (assigned on insert).

@@ -1,9 +1,7 @@
 import type { CollectionSchema, FieldDef } from "./types.js";
 
 function toTypeName(collectionName: string): string {
-  const singular = collectionName.endsWith("s")
-    ? collectionName.slice(0, -1)
-    : collectionName;
+  const singular = collectionName.endsWith("s") ? collectionName.slice(0, -1) : collectionName;
   return singular.charAt(0).toUpperCase() + singular.slice(1);
 }
 

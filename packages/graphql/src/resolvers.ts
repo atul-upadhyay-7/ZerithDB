@@ -44,18 +44,12 @@ export function generateResolvers(
   Query: Record<string, () => boolean>;
   Mutation: Record<
     string,
-    (
-      parent: unknown,
-      args: Record<string, unknown>
-    ) => Promise<Record<string, unknown> | boolean>
+    (parent: unknown, args: Record<string, unknown>) => Promise<Record<string, unknown> | boolean>
   >;
 } {
   const mutations: Record<
     string,
-    (
-      parent: unknown,
-      args: Record<string, unknown>
-    ) => Promise<Record<string, unknown> | boolean>
+    (parent: unknown, args: Record<string, unknown>) => Promise<Record<string, unknown> | boolean>
   > = {};
 
   for (const schema of schemas) {

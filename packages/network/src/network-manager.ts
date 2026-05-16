@@ -78,8 +78,7 @@ export class NetworkManager extends EventEmitter<NetworkEvents> {
       try {
         await this.connectWebSocket(signalingUrl, roomId);
       } catch (wsError) {
-        const reason =
-          wsError instanceof Error ? wsError.message : "WebSocket connection failed";
+        const reason = wsError instanceof Error ? wsError.message : "WebSocket connection failed";
 
         this.emit("transport:downgrade", {
           from: "websocket",

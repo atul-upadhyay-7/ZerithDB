@@ -2,7 +2,12 @@
   "name": "zerithdb-graphql",
   "version": "0.1.0",
   "description": "Auto-generated GraphQL mutations for ZerithDB collections",
-  "keywords": ["graphql", "local-first", "zerithdb", "mutations"],
+  "keywords": [
+    "graphql",
+    "local-first",
+    "zerithdb",
+    "mutations"
+  ],
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -35,5 +40,8 @@
     "typescript": "^5.5.4",
     "vitest": "^2.0.5"
   },
-  "files": ["dist", "src"]
+  "files": [
+    "dist",
+    "src"
+  ]
 }
