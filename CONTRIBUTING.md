@@ -35,8 +35,8 @@ constructive. Violations → `conduct@zerithdb.dev`
 ### Bootstrap
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/zerithdb.git
-cd zerithdb
+git clone https://github.com/YOUR_USERNAME/ZerithDB.git
+cd ZerithDB
 git remote add upstream https://github.com/Zerith-Labs/ZerithDB.git
 pnpm install
 pnpm build
@@ -49,7 +49,7 @@ pnpm dev           # start all packages in watch mode
 ```bash
 pnpm --filter zerithdb-db dev
 pnpm --filter zerithdb-sync test
-pnpm --filter zerithdb-todo-app dev
+pnpm --filter zerithdb-sdk dev
 ```
 
 ---
@@ -62,7 +62,7 @@ pnpm --filter zerithdb-todo-app dev
   [`good-first-issue`](https://github.com/Zerith-Labs/ZerithDB/issues?q=label%3Agood-first-issue) or
   [`help-wanted`](https://github.com/Zerith-Labs/ZerithDB/issues?q=label%3Ahelp-wanted).
 - For features, open a Discussion before writing code.
-- Comment "I'll work on this" to claim an issue.
+- Comment `/assign` to automatically claim an issue. Use `/unassign` if you can no longer work on it.
 
 ### 2. Branch Naming
 
