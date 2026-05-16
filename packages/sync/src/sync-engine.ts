@@ -4,6 +4,7 @@ import type { ZerithDBConfig, SyncState } from "zerithdb-core";
 import { EventEmitter } from "zerithdb-core";
 import type { DbClient } from "zerithdb-db";
 import type { NetworkManager } from "zerithdb-network";
+import { bytesToBase64, base64ToBytes } from "zerithdb-utils";
 
 type SyncEvents = {
   "state:change": SyncState;
@@ -158,12 +159,4 @@ export class SyncEngine extends EventEmitter<SyncEvents> {
   }
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function bytesToBase64(bytes: Uint8Array): string {
-  return btoa(String.fromCharCode(...bytes));
-}
-
-function base64ToBytes(b64: string): Uint8Array {
-  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-}
+// ─── Helpers ────────────────────────────────────────────────────────────────
