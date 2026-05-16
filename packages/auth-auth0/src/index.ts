@@ -93,7 +93,7 @@ export async function verifyAuth0Token(token: string, config: Auth0Config): Prom
   );
 
   const data = new TextEncoder().encode(signingInput);
-  return await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, signature, data);
+  return await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, signature as any, data as any);
 }
 
 export type { Auth0Config, ZerithAuth0Identity } from "./types.js";
@@ -156,7 +156,7 @@ function validateClaims(payload: JwtPayload, config: Auth0Config): boolean {
 
 async function getJwk(domain: string, kid: string): Promise<JsonWebKey | null> {
   const keys = await getJwks(domain);
-  return keys.find((key) => key.kid === kid) ?? null;
+  return keys.find((key: any) => key.kid === kid) ?? null;
 }
 
 async function getJwks(domain: string): Promise<JsonWebKey[]> {
