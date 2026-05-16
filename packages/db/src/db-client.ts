@@ -196,20 +196,24 @@ export class CollectionClient<T extends Record<string, any> = Record<string, any
         continue;
       }
 
-      const ops = condition as Record<string, any>;
-      if ("$eq" in ops && fieldValue !== ops["$eq"]) return false;
-      if ("$ne" in ops && fieldValue === ops["$ne"]) return false;
-      if ("$gt" in ops && !((fieldValue as any) > (ops["$gt"] as never))) return false;
-      if ("$gte" in ops && !((fieldValue as any) >= (ops["$gte"] as never))) return false;
-      if ("$lt" in ops && !((fieldValue as any) < (ops["$lt"] as never))) return false;
-      if ("$lte" in ops && !((fieldValue as any) <= (ops["$lte"] as never))) return false;
-      if ("$in" in ops && !(ops["$in"] as unknown[]).includes(fieldValue)) return false;
-      if ("$nin" in ops && (ops["$nin"] as unknown[]).includes(fieldValue)) return false;
+      const conditions = condition as Record<string, any>;
+      if ("$eq" in conditions && fieldValue !== conditions["$eq"]) return false;
+      if ("$ne" in conditions && fieldValue === conditions["$ne"]) return false;
+      if ("$gt" in conditions && !((fieldValue as any) > (conditions["$gt"] as never))) return false;
+      if ("$gte" in conditions && !((fieldValue as any) >= (conditions["$gte"] as never))) return false;
+      if ("$lt" in conditions && !((fieldValue as any) < (conditions["$lt"] as never))) return false;
+      if ("$lte" in conditions && !((fieldValue as any) <= (conditions["$lte"] as never))) return false;
+      if ("$in" in conditions && !(conditions["$in"] as unknown[]).includes(fieldValue)) return false;
+      if ("$nin" in conditions && (conditions["$nin"] as unknown[]).includes(fieldValue)) return false;
     }
     return true;
   }
 }
 
+/**
+ * Internal Dexie subclass that manages dynamic collection creation.
+ * Collections are added lazily via schema version upgrades.
+ */
 class ZerithDBDexie extends Dexie {
   private readonly tableMap = new Map<string, Table>();
   private _currentSchema: Record<string, string> = {};
@@ -219,6 +223,13 @@ class ZerithDBDexie extends Dexie {
     super(`zerithdb_${appId}`);
   }
 
+  /**
+   * Ensure a named collection exists, creating it via a Dexie version
+   * upgrade if it has not been registered yet.
+   *
+   * @param name - The collection name to create or retrieve
+   * @returns The Dexie {@link Table} handle for the collection
+   */
   ensureCollection(name: string): Table {
     if (!this.tableMap.has(name)) {
       this._currentSchema[name] = "_id, _createdAt, _updatedAt";
