@@ -1,5 +1,5 @@
 "use client";
-
+import SocialGraph from "../components/SocialGraph";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -692,7 +692,7 @@ export default function LandingPage() {
             <Link href="/pricing" className="hover:text-gray-900 transition-colors">
               Pricing
             </Link>
-            <a href="#" className="hover:text-gray-900 transition-colors">
+            <a href="https://discord.gg/MhvuDvzWfF" target="_blank" rel="noopener noreferrer" className="hover:text-gray-900 transition-colors">
               Discord
             </a>
           </div>
@@ -702,6 +702,7 @@ export default function LandingPage() {
           </div>
         </div>
       </footer>
+      <SocialGraph />
     </main>
   );
 }
