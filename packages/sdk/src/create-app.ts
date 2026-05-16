@@ -1,3 +1,4 @@
+import { Logger } from "zerithdb-core";
 import type { ZerithDBConfig } from "zerithdb-core";
 import { MemoryCollector, estimateStorageBytes } from "zerithdb-devtools";
 import { ZerithDBError, ErrorCode } from "zerithdb-core";
@@ -94,6 +95,9 @@ export function createApp(config: ZerithDBConfig): ZerithDBApp {
       ...config.network,
     },
   };
+
+  const logger = new Logger(resolvedConfig, "SDK");
+  logger.info("Initializing ZerithDB app", { appId: resolvedConfig.appId });
 
   const auth = new AuthManager(resolvedConfig);
   const db = new DbClient(resolvedConfig);

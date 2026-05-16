@@ -1,14 +1,41 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { ArrowLeft, Wifi, WifiOff, Laptop, Save, Database, ArrowRightLeft } from "lucide-react";
+import {
+  ArrowLeft,
+  Wifi,
+  WifiOff,
+  Laptop,
+  Save,
+  Database,
+  ArrowRightLeft,
+  Copy,
+  Check,
+} from "lucide-react";
 
 type Note = {
   id: string;
   text: string;
   timestamp: number;
 };
+
+type Toast = {
+  id: string;
+  message: string;
+  type: "success" | "error";
+};
+
+// Helper to generate mock Ed25519 did:key identifiers
+async function generateMockDID(): Promise<string> {
+  // Generate a random 64-character hex string as mock Ed25519 public key
+  const mockPublicKey = Array.from({ length: 32 }, () =>
+    Math.floor(Math.random() * 256)
+      .toString(16)
+      .padStart(2, "0")
+  ).join("");
+  return `did:key:z${mockPublicKey}`;
+}
 
 export default function PlaygroundPage() {
   const [isOnline, setIsOnline] = useState(true);
@@ -49,6 +76,57 @@ export default function PlaygroundPage() {
       return () => clearTimeout(timer);
     }
   }, [isOnline]);
+
+  // Identity and toast state
+  const [identityA, setIdentityA] = useState<string>("");
+  const [identityB, setIdentityB] = useState<string>("");
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  // Use a ref for timeouts to prevent re-renders and cleanup bugs
+  const toastTimeouts = useRef<Set<NodeJS.Timeout>>(new Set());
+
+  // Generate identities on mount to avoid hydration mismatch
+  useEffect(() => {
+    (async () => {
+      const didA = await generateMockDID();
+      const didB = await generateMockDID();
+      setIdentityA(didA);
+      setIdentityB(didB);
+    })();
+  }, []);
+
+  // Cleanup all timeouts only on component unmount
+  useEffect(() => {
+    const timeouts = toastTimeouts.current;
+    return () => {
+      timeouts.forEach(clearTimeout);
+    };
+  }, []);
+
+  const showToast = (message: string, type: "success" | "error" = "success") => {
+    const id = Math.random().toString(36).substring(7);
+    setToasts((prev) => [...prev, { id, message, type }]);
+
+    const timeout = setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+      toastTimeouts.current.delete(timeout);
+    }, 2000);
+
+    toastTimeouts.current.add(timeout);
+  };
+
+  // Copy to clipboard
+  const copyToClipboard = async (text: string) => {
+    if (!text.trim()) {
+      showToast("Failed to copy", "error");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast("Copied to clipboard!", "success");
+    } catch {
+      showToast("Failed to copy", "error");
+    }
+  };
 
   // Sync logic simulation
   useEffect(() => {
@@ -168,6 +246,27 @@ export default function PlaygroundPage() {
             </div>
           </div>
 
+          {/* Identity Display */}
+          <div className="bg-blue-50 px-4 py-3 border-b border-blue-100">
+            <div className="text-xs font-semibold text-blue-900 mb-2 uppercase tracking-wide">
+              Identity (Ed25519 Mock)
+            </div>
+            <div className="flex items-center gap-2 bg-white rounded-lg px-3 py-2 border border-blue-200">
+              <code className="text-xs text-blue-700 font-mono flex-1 truncate">
+                {identityA || "(generating...)"}
+              </code>
+              <button
+                onClick={() => copyToClipboard(identityA)}
+                disabled={!identityA}
+                className="ml-2 p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-100 disabled:text-gray-400 disabled:hover:bg-transparent rounded transition-colors flex-shrink-0"
+                title={identityA ? "Copy public key" : "Loading..."}
+                aria-label="Copy Browser A public key"
+              >
+                <Copy className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
           <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
             {isLoading ? (
               <div className="flex flex-col gap-3">
@@ -236,6 +335,27 @@ export default function PlaygroundPage() {
             </div>
             <div className="flex items-center gap-2 text-xs text-gray-400 font-mono">
               <Database className="w-3.5 h-3.5" /> IndexedDB Active
+            </div>
+          </div>
+
+          {/* Identity Display */}
+          <div className="bg-purple-50 px-4 py-3 border-b border-purple-100">
+            <div className="text-xs font-semibold text-purple-900 mb-2 uppercase tracking-wide">
+              Identity (Ed25519 Mock)
+            </div>
+            <div className="flex items-center gap-2 bg-white rounded-lg px-3 py-2 border border-purple-200">
+              <code className="text-xs text-purple-700 font-mono flex-1 truncate">
+                {identityB || "(generating...)"}
+              </code>
+              <button
+                onClick={() => copyToClipboard(identityB)}
+                disabled={!identityB}
+                className="ml-2 p-1.5 text-purple-500 hover:text-purple-700 hover:bg-purple-100 disabled:text-gray-400 disabled:hover:bg-transparent rounded transition-colors flex-shrink-0"
+                title={identityB ? "Copy public key" : "Loading..."}
+                aria-label="Copy Browser B public key"
+              >
+                <Copy className="w-4 h-4" />
+              </button>
             </div>
           </div>
 
@@ -318,6 +438,32 @@ export default function PlaygroundPage() {
             Watch the CRDT engine automatically merge the states perfectly!
           </li>
         </ul>
+      </div>
+
+      {/* Toast Notifications */}
+      <div
+        className="fixed bottom-6 right-6 flex flex-col gap-2 pointer-events-none"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            className={`px-4 py-3 rounded-lg shadow-lg flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300 pointer-events-auto ${
+              toast.type === "success"
+                ? "bg-black text-white"
+                : "bg-red-100 text-red-900 border border-red-200"
+            }`}
+          >
+            {toast.type === "success" ? (
+              <Check className="w-4 h-4 text-green-400" />
+            ) : (
+              <span className="text-lg">✕</span>
+            )}
+            <span className="text-sm font-medium">{toast.message}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
