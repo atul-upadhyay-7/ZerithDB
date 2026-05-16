@@ -160,7 +160,9 @@ class RxDBAdapter implements InsertAdapter {
     } catch (err) {
       // If setup fails, mark as skipped
       this.skipped = true;
-      console.log(`  Note: ${this.name} skipped - requires additional setup (${err instanceof Error ? err.message : 'unknown error'})`);
+      console.log(
+        `  Note: ${this.name} skipped - requires additional setup (${err instanceof Error ? err.message : "unknown error"})`
+      );
     }
   }
 
@@ -243,9 +245,9 @@ async function runInsertBenchmark(
     };
   } catch (err) {
     // If benchmark fails, log and return null
-      console.log(
-        `  Warning: ${adapter.name} insert benchmark failed - ${err instanceof Error ? err.message : "unknown error"}`
-      );
+    console.log(
+      `  Warning: ${adapter.name} insert benchmark failed - ${err instanceof Error ? err.message : "unknown error"}`
+    );
     try {
       await adapter.teardown();
     } catch {
@@ -314,7 +316,17 @@ function printTable(results: BenchmarkResult[], batchSizes: number[]): void {
 
   // Print header
   console.log("\n" + "=".repeat(dbNameWidth + countWidth + timeWidth + opsWidth + 6));
-  console.log("| " + "DB".padEnd(dbNameWidth) + " | " + "Records".padEnd(countWidth) + " | " + "Time (ms)".padEnd(timeWidth) + " | " + "Ops/sec".padEnd(opsWidth) + " |");
+  console.log(
+    "| " +
+      "DB".padEnd(dbNameWidth) +
+      " | " +
+      "Records".padEnd(countWidth) +
+      " | " +
+      "Time (ms)".padEnd(timeWidth) +
+      " | " +
+      "Ops/sec".padEnd(opsWidth) +
+      " |"
+  );
   console.log("=".repeat(dbNameWidth + countWidth + timeWidth + opsWidth + 6));
 
   // Group by batch size
@@ -323,14 +335,14 @@ function printTable(results: BenchmarkResult[], batchSizes: number[]): void {
     for (const result of sizeResults) {
       console.log(
         "| " +
-        result.dbName.padEnd(dbNameWidth) +
-        " | " +
-        formatNumber(result.recordCount).padEnd(countWidth) +
-        " | " +
-        result.totalTimeMs.toString().padEnd(timeWidth) +
-        " | " +
-        formatNumber(result.opsPerSec).padEnd(opsWidth) +
-        " |"
+          result.dbName.padEnd(dbNameWidth) +
+          " | " +
+          formatNumber(result.recordCount).padEnd(countWidth) +
+          " | " +
+          result.totalTimeMs.toString().padEnd(timeWidth) +
+          " | " +
+          formatNumber(result.opsPerSec).padEnd(opsWidth) +
+          " |"
       );
     }
     if (size !== batchSizes[batchSizes.length - 1]) {
