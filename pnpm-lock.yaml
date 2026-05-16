@@ -39,6 +39,9 @@ importers:
       typescript:
         specifier: ^5.5.4
         version: 5.9.3
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@22.19.18)(happy-dom@20.9.0)(lightningcss@1.32.0)
 
   apps/web:
     dependencies:
@@ -296,6 +299,9 @@ importers:
 
   packages/react:
     dependencies:
+      dexie:
+        specifier: ^4.0.8
+        version: 4.4.2
       zerithdb-sdk:
         specifier: workspace:*
         version: link:../sdk
