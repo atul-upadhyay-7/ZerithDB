@@ -6,9 +6,16 @@
   "type": "module",
   "main": "./dist/server.js",
   "scripts": {
-    "build": "esbuild src/server.ts --bundle --platform=node --format=cjs --outfile=dist/server.cjs --minify",
+    "build": "npm run build:node && npm run build:edge",
+    "build:node": "esbuild src/server.ts --bundle --platform=node --format=cjs --outfile=dist/server.cjs --minify",
+    "build:edge": "esbuild src/server.edge.ts --bundle --platform=neutral --format=esm --outfile=dist/server.edge.js --minify",
+    "build:cloudflare": "esbuild src/server.cloudflare.ts --bundle --platform=neutral --format=esm --outfile=dist/server.cloudflare.js --minify",
     "start": "node dist/server.cjs",
     "dev": "tsx --watch src/server.ts",
+    "dev:edge": "tsx watch src/server.edge.ts",
+    "dev:cloudflare": "wrangler dev --local",
+    "deploy:cloudflare": "wrangler deploy",
+    "deploy:edge": "vercel --prod",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
