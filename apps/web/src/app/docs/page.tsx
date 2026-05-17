@@ -16,6 +16,8 @@ import {
   Globe,
   Zap,
   FileText,
+  Menu,
+  X,
 } from "lucide-react";
 
 type Framework = {
@@ -328,6 +330,7 @@ export default function DocsPage() {
   const [activeSection, setActiveSection] = useState("Quickstart");
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [copiedInstall, setCopiedInstall] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const activeFramework = FRAMEWORKS.find((f) => f.id === activeId) || FRAMEWORKS[0];
 
@@ -548,6 +551,13 @@ export default function DocsPage() {
     <div className="min-h-screen bg-background text-foreground flex flex-col font-sans transition-colors duration-300">
       <header className="bg-background border-b border-border px-6 h-16 flex items-center justify-between sticky top-0 z-50 transition-colors duration-300">
         <div className="flex items-center gap-4">
+
+          <button
+            className="lg:hidden text-foreground"
+            onClick={() => setMobileSidebarOpen(true)}
+          >
+            <Menu className="w-6 h-6" />
+          </button>
           <Link
             href="/"
             className="text-muted-foreground hover:text-foreground transition-colors flex items-center gap-2 text-sm font-medium"
@@ -590,7 +600,63 @@ export default function DocsPage() {
         </div>
       </header>
 
+      {mobileSidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      )}
+
       <div className="flex-1 flex max-w-[1400px] mx-auto w-full">
+        <aside
+          className={`fixed top-0 left-0 h-full w-72 bg-background border-r border-border z-50 transform transition-transform duration-300 lg:hidden ${mobileSidebarOpen ? "translate-x-0" : "-translate-x-full"
+            }`}
+        >
+          <div className="flex items-center justify-between p-4 border-b border-border">
+            <h2 className="font-semibold text-foreground">Documentation</h2>
+
+            <button onClick={() => setMobileSidebarOpen(false)}>
+              <X className="w-5 h-5 text-foreground" />
+            </button>
+          </div>
+
+          <div className="space-y-8 p-6 overflow-y-auto">
+            {SIDEBAR_LINKS.map((section, idx) => {
+              const SectionIcon = section.icon;
+
+              return (
+                <div key={idx}>
+                  <h3 className="text-xs font-bold tracking-widest uppercase text-muted-foreground mb-3 flex items-center gap-2">
+                    <SectionIcon className="w-3.5 h-3.5" />
+                    {section.category}
+                  </h3>
+
+                  <ul className="flex flex-col gap-1.5 border-l border-border ml-1.5 pl-3">
+                    {section.items.map((item, i) => (
+                      <li key={i}>
+                        <button
+                          onClick={() => {
+                            setActiveSection(item);
+                            setMobileSidebarOpen(false);
+                          }}
+                          className={
+                            "text-sm font-medium transition-colors text-left w-full " +
+                            (item === activeSection
+                              ? "text-blue-600 dark:text-blue-400"
+                              : "text-muted-foreground hover:text-foreground")
+                          }
+                        >
+                          {item}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
+          </div>
+        </aside>
+
         <aside className="w-72 border-r border-border py-8 pr-6 pl-6 hidden lg:block overflow-y-auto h-[calc(100vh-4rem)] sticky top-16 transition-colors duration-300">
           <div className="space-y-8">
             {SIDEBAR_LINKS.map((section, idx) => {
