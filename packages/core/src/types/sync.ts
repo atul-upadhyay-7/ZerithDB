@@ -49,3 +49,39 @@ export interface SyncPlugin {
     update: Uint8Array
   ) => Uint8Array | null | Promise<Uint8Array | null>;
 }
+
+export interface EphemeralPeerState<
+  TState extends Record<string, unknown> = Record<string, unknown>,
+> {
+  peerId: string;
+  state: TState;
+  sequence: number;
+  updatedAt: number;
+}
+
+export interface MediaTrackMetadata {
+  kind: "audio" | "video";
+  enabled: boolean;
+}
+
+export interface MediaStreamMetadata {
+  streamId: string;
+  tracks: MediaTrackMetadata[];
+  audioMuted?: boolean;
+  videoMuted?: boolean;
+  [key: string]: unknown;
+}
+
+export interface ActiveSpeakerState {
+  peerId: string;
+  updatedAt: number;
+  [key: string]: unknown;
+}
+
+export interface VideoParticipantState {
+  peerId: string;
+  muted: { audio: boolean; video: boolean };
+  streams: Record<string, MediaStreamMetadata>;
+  updatedAt: number;
+  activeSpeaker?: ActiveSpeakerState;
+}

@@ -33,6 +33,15 @@ export interface SyncConfig {
    * @default "auto"
    */
   transport?: "auto" | "websocket" | "polling";
+
+  /**
+   * Ephemeral state sync configuration.
+   */
+  ephemeral?: {
+    throttleMs?: number;
+    staleAfterMs?: number;
+    cleanupIntervalMs?: number;
+  };
 }
 
 export interface AuthConfig {

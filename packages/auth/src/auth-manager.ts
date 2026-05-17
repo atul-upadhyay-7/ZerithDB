@@ -148,6 +148,49 @@ export class AuthManager extends EventEmitter<AuthEvents> {
     }
   }
 
+  /**
+   * Generate recovery shards for the current identity's private key
+   * using Shamir's Secret Sharing.
+   */
+  async generateRecoveryShards(threshold: number, total: number): Promise<string[]> {
+    if (this.privateKeyBytes === null) {
+      throw new ZerithDBError(
+        ErrorCode.AUTH_KEY_NOT_FOUND,
+        "No identity loaded. Call auth.signIn() first."
+      );
+    }
+
+    const { splitSecret } = await import("zerithdb-wasm-crypto");
+    return await splitSecret(this.privateKeyBytes, threshold, total);
+  }
+
+  /**
+   * Reconstruct the private key identity from a set of recovery shards
+   * and sign in with the reconstructed key.
+   */
+  async recoverIdentity(shards: string[]): Promise<Identity> {
+    const { recoverSecret } = await import("zerithdb-wasm-crypto");
+
+    try {
+      const privateKeyBytes = await recoverSecret(shards);
+      const publicKeyBytes = await ed.getPublicKeyAsync(privateKeyBytes);
+
+      const identity = this.buildIdentity(publicKeyBytes);
+      this._identity = identity;
+      this.privateKeyBytes = privateKeyBytes;
+
+      this.saveToStorage(privateKeyBytes, publicKeyBytes);
+      this.emit("identity:change", identity);
+      return identity;
+    } catch (err) {
+      throw new ZerithDBError(
+        ErrorCode.AUTH_VERIFY_FAILED,
+        "Failed to recover identity from shards. Check that the shards are correct and the threshold is met.",
+        { cause: err }
+      );
+    }
+  }
+
   /** The currently loaded identity, or null if not signed in */
   get identity(): Identity | null {
     return this._identity;

@@ -26,6 +26,7 @@
     "dexie": "^4.0.8",
     "lib0": "^0.2.98",
     "y-indexeddb": "^9.0.12",
+    "y-protocols": "^1.0.6",
     "yjs": "^13.6.18",
     "zerithdb-core": "workspace:*",
     "zerithdb-db": "workspace:*",

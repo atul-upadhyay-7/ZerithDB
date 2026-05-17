@@ -1,30 +1,30 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import React, { useState, Suspense } from "react";
+import React, { useState } from "react";
 import dynamic from "next/dynamic";
 import { EXAMPLES } from "./examples";
-import { motion, AnimatePresence } from "framer-motion";
-import { Code2, Play, Sparkles, ChevronRight } from "lucide-react";
+import { Code2, Sparkles, ChevronRight } from "lucide-react";
 
 // Lazy load the editor to keep initial bundle size small
-const CodeEditor = dynamic(() => import("./Editor"), {
+const CodeEditor = dynamic(() => import("./Editor") as any, {
   ssr: false,
   loading: () => (
     <div className="h-[400px] w-full bg-gray-900 rounded-lg animate-pulse flex items-center justify-center">
       <span className="text-gray-500 font-mono">Loading Editor...</span>
     </div>
   ),
-});
+}) as any;
 
-const Preview = dynamic(() => import("./Preview"), {
+const Preview = dynamic(() => import("./Preview") as any, {
   ssr: false,
-});
+}) as any;
 
 export const TryShell: React.FC = () => {
   const [activeExample, setActiveExample] = useState(EXAMPLES[0]);
   const [code, setCode] = useState(EXAMPLES[0].code);
 
-  const handleExampleChange = (example: typeof EXAMPLES[0]) => {
+  const handleExampleChange = (example: (typeof EXAMPLES)[0]) => {
     setActiveExample(example);
     setCode(example.code);
   };
@@ -41,7 +41,8 @@ export const TryShell: React.FC = () => {
             Try ZerithDB in <span className="text-blue-600">seconds.</span>
           </h2>
           <p className="mt-3 text-lg text-gray-500 max-w-2xl">
-            Run real queries directly in your browser. No installation, no backend, no configuration required.
+            Run real queries directly in your browser. No installation, no backend, no configuration
+            required.
           </p>
         </div>
 
@@ -79,17 +80,14 @@ export const TryShell: React.FC = () => {
             </div>
           </div>
           <div className="flex-1">
-            <CodeEditor code={code} onChange={(val) => setCode(val || "")} />
+            <CodeEditor code={code} onChange={(val: any) => setCode(val || "")} />
           </div>
         </div>
 
         {/* Preview Pane */}
         <div className="lg:col-span-2">
-          <Preview 
-            code={code} 
-            onReset={() => setCode(activeExample.code)} 
-          />
-          
+          <Preview code={code} onReset={() => setCode(activeExample.code)} />
+
           <div className="mt-6 p-6 bg-blue-600 rounded-2xl text-white shadow-xl shadow-blue-200 relative overflow-hidden group">
             <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
               <Sparkles className="w-24 h-24 rotate-12" />
@@ -98,8 +96,8 @@ export const TryShell: React.FC = () => {
             <p className="text-blue-100 text-sm mb-4 leading-relaxed">
               Install the SDK and get your local-first app running in less than 5 minutes.
             </p>
-            <a 
-              href="/docs" 
+            <a
+              href="/docs"
               className="inline-flex items-center gap-2 bg-white text-blue-600 px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-50 transition-colors"
             >
               Get Started <ChevronRight className="w-4 h-4" />

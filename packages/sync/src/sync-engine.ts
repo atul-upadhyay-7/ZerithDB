@@ -1,4 +1,5 @@
 import * as Y from "yjs";
+import * as awarenessProtocol from "y-protocols/awareness";
 import { IndexeddbPersistence } from "y-indexeddb";
 import type { ZerithDBConfig, SyncState, SyncPlugin } from "zerithdb-core";
 import { EventEmitter } from "zerithdb-core";
@@ -7,6 +8,7 @@ import type { NetworkManager } from "zerithdb-network";
 import { InboxQueue } from "./queue/InboxQueue.js";
 import { OutboxQueue } from "./queue/OutboxQueue.js";
 import { bytesToBase64, base64ToBytes } from "zerithdb-utils";
+import { EphemeralStateManager } from "./ephemeral-state.js";
 
 type SyncEvents = {
   "state:change": SyncState;
@@ -22,8 +24,10 @@ type SyncEvents = {
 export class SyncEngine extends EventEmitter<SyncEvents> {
   private readonly docs = new Map<string, Y.Doc>();
   private readonly persistences = new Map<string, IndexeddbPersistence>();
+  private readonly awarenesses = new Map<string, awarenessProtocol.Awareness>();
   readonly outbox: OutboxQueue<Uint8Array>;
   readonly inbox: InboxQueue<Uint8Array>;
+  readonly ephemeral: EphemeralStateManager;
   private _enabled = false;
   private _state: SyncState = { synced: false, pendingUpdates: 0, connectedPeers: 0 };
   private plugins = new Map<string, SyncPlugin>();
@@ -40,6 +44,7 @@ export class SyncEngine extends EventEmitter<SyncEvents> {
     super();
     this.outbox = new OutboxQueue(config.appId);
     this.inbox = new InboxQueue(config.appId);
+    this.ephemeral = new EphemeralStateManager(config, network);
     this.onPeerUpdate = this.onPeerUpdate.bind(this);
     this.onPeerConnected = this.onPeerConnected.bind(this);
     this.onPeerDisconnected = this.onPeerDisconnected.bind(this);
@@ -139,6 +144,13 @@ export class SyncEngine extends EventEmitter<SyncEvents> {
   }
 
   /**
+   * Alias for getDoc to match common Yjs terminology.
+   */
+  getYDoc(collectionName: string): Y.Doc {
+    return this.getDoc(collectionName);
+  }
+
+  /**
    * Get or create the Yjs document for a collection.
    * Documents are persisted to IndexedDB via y-indexeddb.
    */
@@ -169,6 +181,36 @@ export class SyncEngine extends EventEmitter<SyncEvents> {
   }
 
   /**
+   * Get or create the awareness instance for a collection.
+   * Awareness is used for ephemeral state like cursor positions.
+   */
+  getAwareness(collectionName: string): awarenessProtocol.Awareness {
+    if (this.awarenesses.has(collectionName)) {
+      // biome-ignore lint: map guarantees defined
+      return this.awarenesses.get(collectionName)!;
+    }
+
+    const doc = this.getDoc(collectionName);
+    const awareness = new awarenessProtocol.Awareness(doc);
+
+    awareness.on("update", ({ added, updated, removed }: any, origin: any) => {
+      if (origin === "remote") return;
+      if (!this._enabled) return;
+
+      const changedClients = added.concat(updated).concat(removed);
+      const update = awarenessProtocol.encodeAwarenessUpdate(awareness, changedClients);
+
+      this.network.broadcast({
+        type: "awareness",
+        payload: this.encodeMessage(collectionName, update),
+      });
+    });
+
+    this.awarenesses.set(collectionName, awareness);
+    return awareness;
+  }
+
+  /**
    * Apply a remote CRDT update to the local document.
    * Called by the network layer when a peer sends an update.
    */
@@ -188,11 +230,20 @@ export class SyncEngine extends EventEmitter<SyncEvents> {
     void this.handleRemoteUpdate(collectionName, finalUpdate, fromPeer);
   }
 
+  /**
+   * Apply a remote awareness update.
+   */
+  applyRemoteAwarenessUpdate(collectionName: string, update: Uint8Array): void {
+    const awareness = this.getAwareness(collectionName);
+    awarenessProtocol.applyAwarenessUpdate(awareness, update, "remote");
+  }
+
   async dispose(): Promise<void> {
     if (typeof document !== "undefined") {
       document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     }
     this.disable();
+    this.ephemeral.dispose();
     if (this.syncTimer) {
       if (this.syncTimerIsRaf && typeof window !== "undefined" && window.cancelAnimationFrame) {
         window.cancelAnimationFrame(this.syncTimer);
@@ -208,8 +259,12 @@ export class SyncEngine extends EventEmitter<SyncEvents> {
     for (const [, doc] of this.docs) {
       doc.destroy();
     }
+    for (const [, awareness] of this.awarenesses) {
+      awareness.destroy();
+    }
     this.docs.clear();
     this.persistences.clear();
+    this.awarenesses.clear();
     this.pendingUpdates.clear();
   }
 
@@ -264,9 +319,6 @@ export class SyncEngine extends EventEmitter<SyncEvents> {
           });
         })
         .catch(() => {
-          // Failure to upgrade -> disconnect peer
-          // Assuming `network` has a way to disconnect or we just ignore.
-          // We can emit an error or handle it.
           console.warn(
             `Peer ${msg.from} failed to upgrade. Disconnecting is currently not natively supported in NetworkManager's public API directly from SyncEngine, but we will ignore their updates.`
           );
@@ -279,14 +331,18 @@ export class SyncEngine extends EventEmitter<SyncEvents> {
       return;
     }
 
-    if (msg.type !== "sync-update") return;
+    if (msg.type !== "sync-update" && msg.type !== "awareness-update") return;
 
     const payload = typeof msg.payload === "string" ? base64ToBytes(msg.payload) : msg.payload;
 
     const decoded = this.decodeMessage(payload);
     if (decoded === null) return;
 
-    void this.applyRemoteUpdate(decoded.collectionName, decoded.update, msg.from);
+    if (msg.type === "sync-update") {
+      void this.applyRemoteUpdate(decoded.collectionName, decoded.update, msg.from);
+    } else {
+      this.applyRemoteAwarenessUpdate(decoded.collectionName, decoded.update);
+    }
   }
 
   private onPeerConnected(): void {

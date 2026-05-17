@@ -1,4 +1,4 @@
-import Dexie, { type Table } from "dexie";
+import Dexie, { type Table, liveQuery } from "dexie";
 import { v7 as uuidv7 } from "uuid";
 import type {
   ZerithDBConfig,
@@ -10,7 +10,6 @@ import type {
 import { ZerithDBError, ErrorCode } from "zerithdb-core";
 import { wrapIDBOperation } from "./internal/wrap-idb-operation.js";
 import type { BackupExportOptions, BackupSnapshot } from "./backup.js";
-
 /**
  * A handle to a single named collection within the ZerithDB local database.
  * All operations are async and backed by IndexedDB.
@@ -26,6 +25,12 @@ export class CollectionClient<T extends Record<string, any> = Record<string, any
    * Automatically assigns `_id`, `_createdAt`, and `_updatedAt`.
    */
   async insert(document: T): Promise<InsertResult> {
+    if (document === null || document === undefined) {
+      throw new ZerithDBError(
+        ErrorCode.DB_WRITE_FAILED,
+        `Failed to insert into collection "${this.collectionName}": document cannot be null or undefined`
+      );
+    }
     const now = Date.now();
     const id = uuidv7();
     const doc: Document<T> = {
@@ -49,6 +54,20 @@ export class CollectionClient<T extends Record<string, any> = Record<string, any
    * Insert multiple documents in a single atomic operation.
    */
   async insertMany(documents: T[]): Promise<InsertResult[]> {
+    if (!Array.isArray(documents) || documents.length === 0) {
+      throw new ZerithDBError(
+        ErrorCode.DB_WRITE_FAILED,
+        `Failed to bulk insert into collection "${this.collectionName}": documents list cannot be empty`
+      );
+    }
+    for (const doc of documents) {
+      if (doc === null || doc === undefined) {
+        throw new ZerithDBError(
+          ErrorCode.DB_WRITE_FAILED,
+          `Failed to bulk insert into collection "${this.collectionName}": document cannot be null or undefined`
+        );
+      }
+    }
     const now = Date.now();
     const docs = documents.map((doc) => ({
       ...doc,
@@ -104,6 +123,21 @@ export class CollectionClient<T extends Record<string, any> = Record<string, any
    * Returns the number of updated documents.
    */
   async update(filter: QueryFilter<T>, spec: UpdateSpec<T>): Promise<number> {
+    if (spec === null || spec === undefined) {
+      throw new ZerithDBError(
+        ErrorCode.DB_WRITE_FAILED,
+        `Failed to update collection "${this.collectionName}": update spec cannot be null or undefined`
+      );
+    }
+    const hasKeys = Object.keys(spec).length > 0;
+    const hasSet = spec.$set && Object.keys(spec.$set).length > 0;
+    const hasUnset = spec.$unset && Object.keys(spec.$unset).length > 0;
+    if (!hasKeys || (!hasSet && !hasUnset)) {
+      throw new ZerithDBError(
+        ErrorCode.DB_WRITE_FAILED,
+        `Failed to update collection "${this.collectionName}": update spec must contain a non-empty $set or $unset operator`
+      );
+    }
     return wrapIDBOperation(
       ErrorCode.DB_WRITE_FAILED,
       `Failed to update documents in "${this.collectionName}"`,
@@ -211,6 +245,25 @@ export class CollectionClient<T extends Record<string, any> = Record<string, any
     }
     return true;
   }
+
+  /**
+   * Subscribe to collection changes reactively using Dexie's liveQuery.
+   *
+   * @param callback - Function called with the updated list of documents
+   * @returns An unsubscribe function
+   */
+  subscribe(callback: (documents: Document<T>[]) => void): () => void {
+    const observable = liveQuery(() => this.find());
+    const subscription = observable.subscribe({
+      next: (docs) => callback(docs as Document<T>[]),
+      error: (err) => {
+        console.error(`Subscription error on collection "${this.collectionName}":`, err);
+      },
+    });
+    return () => {
+      subscription.unsubscribe();
+    };
+  }
 }
 
 /**
@@ -269,6 +322,12 @@ export class DbClient {
   }
 
   collection<T extends Record<string, any>>(name: string): CollectionClient<T> {
+    if (typeof name !== "string" || name.trim().length === 0) {
+      throw new ZerithDBError(
+        ErrorCode.DB_INIT_FAILED,
+        `Invalid collection name: expected non-empty string, got "${name}"`
+      );
+    }
     if (!this.collections.has(name)) {
       const table = this.dexie.ensureCollection(name);
       this.collections.set(name, new CollectionClient<T>(table as Table<Document<T>>, name));
