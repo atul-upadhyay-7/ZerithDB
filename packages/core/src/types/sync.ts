@@ -1,3 +1,5 @@
+import type { MediaStreamMetadata } from "./network.js";
+
 /** A CRDT update payload to be applied or transmitted to peers. */
 export interface SyncUpdate {
   /** Name of the collection this update belongs to */
@@ -48,4 +50,32 @@ export interface SyncPlugin {
     collectionName: string,
     update: Uint8Array
   ) => Uint8Array | null | Promise<Uint8Array | null>;
+}
+
+export interface EphemeralPeerState<
+  TState extends Record<string, unknown> = Record<string, unknown>,
+> {
+  peerId: string;
+  state: TState;
+  sequence: number;
+  updatedAt: number;
+}
+
+export interface ActiveSpeakerState {
+  peerId: string;
+  streamId?: string;
+  trackId?: string;
+  audioLevel?: number;
+  updatedAt: number;
+}
+
+export interface VideoParticipantState {
+  peerId: string;
+  muted: {
+    audio: boolean;
+    video: boolean;
+  };
+  activeSpeaker?: ActiveSpeakerState;
+  streams: Record<string, MediaStreamMetadata>;
+  updatedAt: number;
 }

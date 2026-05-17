@@ -1,8 +1,10 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { createServer, type IncomingMessage, type ServerResponse } from "http";
+import { verify, type JwtPayload } from "jsonwebtoken";
 
 const PORT = parseInt(process.env["PORT"] ?? "4000", 10);
 const HOST = process.env["HOST"] ?? "0.0.0.0";
+const JWT_SECRET = process.env["JWT_SECRET"] ?? "";
 type LogLevel = "debug" | "info" | "warn" | "error";
 
 const validLogLevels: LogLevel[] = ["debug", "info", "warn", "error"];
@@ -84,6 +86,20 @@ setInterval(() => {
   }
 }, 15_000);
 
+// ─── JWT Auth ───────────────────────────────────────────────────────────────
+
+function verifyRoomToken(token: string | null, roomId: string): string | null {
+  if (!JWT_SECRET) return null;
+  if (!token) return "Missing token";
+  try {
+    const payload = verify(token, JWT_SECRET) as JwtPayload;
+    if (payload["roomId"] !== roomId) return "Token not valid for this room";
+    return null;
+  } catch {
+    return "Invalid or expired token";
+  }
+}
+
 // ─── HTTP server ────────────────────────────────────────────────────────────
 
 const server = createServer((req, res) => {
@@ -158,10 +174,18 @@ wss.on("connection", (ws, req) => {
   const url = new URL(req.url ?? "/", "http://localhost");
   const roomId = url.searchParams.get("room");
   const peerId = url.searchParams.get("peer");
+  const token: string | null = url.searchParams.get("token");
 
   if (!roomId || !peerId) {
     logger.warn(`[!] Rejected connection from ${req.socket.remoteAddress}: missing params`);
     ws.close(1008, "Missing room or peer query parameters");
+    return;
+  }
+
+  const authError = verifyRoomToken(token, roomId);
+  if (authError) {
+    console.log(`[!] Rejected connection from peer=${peerId}: ${authError}`);
+    ws.close(1008, authError);
     return;
   }
 
@@ -185,16 +209,14 @@ wss.on("connection", (ws, req) => {
 
   // Relay messages between peers
   ws.on("message", (data) => {
-    logger.debug(
-      `[MESSAGE] peer=${peerId} room=${roomId}`
-    );
+    logger.debug(`[MESSAGE] peer=${peerId} room=${roomId}`);
     let msg: { to?: string; from?: string; [key: string]: unknown };
     try {
       msg = JSON.parse(data.toString());
     } catch {
-        logger.warn(`[!] Invalid message from peer=${peerId}`);
-        return;
-      }
+      logger.warn(`[!] Invalid message from peer=${peerId}`);
+      return;
+    }
 
     // Stamp the sender
     msg.from = peerId;
@@ -219,9 +241,7 @@ wss.on("connection", (ws, req) => {
   });
 
   ws.on("error", (err) => {
-    logger.error(
-      `[!] peer=${peerId} error=${err.message}`
-    );
+    logger.error(`[!] peer=${peerId} error=${err.message}`);
     room.delete(peerEntry);
   });
 });
@@ -308,10 +328,17 @@ function deliverToPeer(peer: PeerEntry, serialized: string): void {
  * Response: { sessionId: string, peerList: string[] }
  */
 function handlePollJoin(req: IncomingMessage, res: ServerResponse): void {
-  readJsonBody(req, (err, body: { room?: string; peer?: string } | null) => {
+  readJsonBody(req, (err, body: { room?: string; peer?: string; token?: string } | null) => {
     if (err || !body?.room || !body?.peer) {
       res.writeHead(400, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "Missing room or peer" }));
+      return;
+    }
+
+    const authError = verifyRoomToken(body.token ?? null, body.room);
+    if (authError) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: authError }));
       return;
     }
 
@@ -556,7 +583,7 @@ process.on("SIGTERM", () => {
   logger.info("Shutting down signaling server...");
   // Clean up all polling sessions
   for (const [sessionId] of pollingSessions) {
-  cleanupPollingSession(sessionId);
+    cleanupPollingSession(sessionId);
   }
   wss.close(() => server.close(() => process.exit(0)));
 });

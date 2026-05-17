@@ -1,4 +1,4 @@
-import Dexie, { type Table } from "dexie";
+import Dexie, { type Table, liveQuery } from "dexie";
 import { v7 as uuidv7 } from "uuid";
 import type {
   ZerithDBConfig,
@@ -10,7 +10,8 @@ import type {
 import { ZerithDBError, ErrorCode } from "zerithdb-core";
 import { wrapIDBOperation } from "./internal/wrap-idb-operation.js";
 import type { BackupExportOptions, BackupSnapshot } from "./backup.js";
-
+import { GraphClient } from "./graph-client.js";
+import type { GraphNode, GraphEdge } from "zerithdb-core";
 /**
  * A handle to a single named collection within the ZerithDB local database.
  * All operations are async and backed by IndexedDB.
@@ -22,10 +23,29 @@ export class CollectionClient<T extends Record<string, any> = Record<string, any
   ) {}
 
   /**
+   * Subscribe to changes in the collection.
+   * Uses Dexie's liveQuery to reactively notify when documents change.
+   *
+   * @param callback - Function called with the updated list of all documents
+   * @returns An unsubscribe function
+   */
+  subscribe(callback: (documents: Document<T>[]) => void): () => void {
+    const observable = liveQuery(() => this.find());
+    const subscription = observable.subscribe({
+      next: (docs) => callback(docs),
+      error: (err) => console.error(`Error in collection subscription:`, err),
+    });
+    return () => subscription.unsubscribe();
+  }
+
+  /**
    * Insert a new document into the collection.
    * Automatically assigns `_id`, `_createdAt`, and `_updatedAt`.
    */
   async insert(document: T): Promise<InsertResult> {
+    if (document === null || document === undefined) {
+      throw new ZerithDBError(ErrorCode.DB_WRITE_FAILED, "Document cannot be null or undefined");
+    }
     const now = Date.now();
     const id = uuidv7();
     const doc: Document<T> = {
@@ -49,6 +69,17 @@ export class CollectionClient<T extends Record<string, any> = Record<string, any
    * Insert multiple documents in a single atomic operation.
    */
   async insertMany(documents: T[]): Promise<InsertResult[]> {
+    if (!Array.isArray(documents) || documents.length === 0) {
+      throw new ZerithDBError(ErrorCode.DB_WRITE_FAILED, "Documents must be a non-empty array");
+    }
+    for (const doc of documents) {
+      if (doc === null || doc === undefined) {
+        throw new ZerithDBError(
+          ErrorCode.DB_WRITE_FAILED,
+          "Documents array cannot contain null or undefined"
+        );
+      }
+    }
     const now = Date.now();
     const docs = documents.map((doc) => ({
       ...doc,
@@ -83,7 +114,8 @@ export class CollectionClient<T extends Record<string, any> = Record<string, any
       `Failed to query collection "${this.collectionName}"`,
       async () => {
         const all = await this.table.toArray();
-        return all.filter((doc) => this.matchesFilter(doc, filter));
+        const compiledFilter = this.precompileRegexes(filter);
+        return all.filter((doc) => this.matchesFilter(doc, compiledFilter));
       }
     );
   }
@@ -104,6 +136,17 @@ export class CollectionClient<T extends Record<string, any> = Record<string, any
    * Returns the number of updated documents.
    */
   async update(filter: QueryFilter<T>, spec: UpdateSpec<T>): Promise<number> {
+    if (
+      !spec ||
+      Object.keys(spec).length === 0 ||
+      ((!spec.$set || Object.keys(spec.$set).length === 0) &&
+        (!spec.$unset || Object.keys(spec.$unset).length === 0))
+    ) {
+      throw new ZerithDBError(
+        ErrorCode.DB_WRITE_FAILED,
+        "Update spec cannot be empty. Must provide non-empty $set or $unset."
+      );
+    }
     return wrapIDBOperation(
       ErrorCode.DB_WRITE_FAILED,
       `Failed to update documents in "${this.collectionName}"`,
@@ -152,8 +195,22 @@ export class CollectionClient<T extends Record<string, any> = Record<string, any
    * Count documents matching a filter.
    */
   async count(filter: QueryFilter<T> = {}): Promise<number> {
-    const docs = await this.find(filter);
-    return docs.length;
+    return wrapIDBOperation(
+      ErrorCode.DB_READ_FAILED,
+      `Failed to count documents in "${this.collectionName}"`,
+      async () => {
+        const compiledFilter = this.precompileRegexes(filter);
+        let total = 0;
+
+        await this.table.each((doc) => {
+          if (this.matchesFilter(doc, compiledFilter)) {
+            total++;
+          }
+        });
+
+        return total;
+      }
+    );
   }
 
   private applyUpdateSpec(doc: Document<T>, spec: UpdateSpec<T>, updatedAt: number): Document<T> {
@@ -169,7 +226,6 @@ export class CollectionClient<T extends Record<string, any> = Record<string, any
 
     next._id = doc._id;
     next._createdAt = doc._createdAt;
-    next._updatedAt = updatedAt;
 
     return next as Document<T>;
   }
@@ -196,14 +252,61 @@ export class CollectionClient<T extends Record<string, any> = Record<string, any
 
       if ("$eq" in conditions && fieldValue !== conditions["$eq"]) return false;
       if ("$ne" in conditions && fieldValue === conditions["$ne"]) return false;
-      if ("$gt" in conditions && !((fieldValue as any) > (conditions["$gt"] as never))) return false;
-      if ("$gte" in conditions && !((fieldValue as any) >= (conditions["$gte"] as never))) return false;
-      if ("$lt" in conditions && !((fieldValue as any) < (conditions["$lt"] as never))) return false;
-      if ("$lte" in conditions && !((fieldValue as any) <= (conditions["$lte"] as never))) return false;
-      if ("$in" in conditions && !(conditions["$in"] as unknown[]).includes(fieldValue)) return false;
-      if ("$nin" in conditions && (conditions["$nin"] as unknown[]).includes(fieldValue)) return false;
+      if ("$gt" in conditions && !((fieldValue as any) > (conditions["$gt"] as never)))
+        return false;
+      if ("$gte" in conditions && !((fieldValue as any) >= (conditions["$gte"] as never)))
+        return false;
+      if ("$lt" in conditions && !((fieldValue as any) < (conditions["$lt"] as never)))
+        return false;
+      if ("$lte" in conditions && !((fieldValue as any) <= (conditions["$lte"] as never)))
+        return false;
+      if ("$in" in conditions && !(conditions["$in"] as unknown[]).includes(fieldValue))
+        return false;
+      if ("$nin" in conditions && (conditions["$nin"] as unknown[]).includes(fieldValue))
+        return false;
+      if ("$exists" in conditions) {
+        const exists = key in doc;
+
+        if (conditions.$exists !== exists) {
+          return false;
+        }
+      }
+      if ("$regex" in conditions) {
+        if (typeof fieldValue !== "string") {
+          return false;
+        }
+
+        const regex =
+          conditions.$regex instanceof RegExp
+            ? conditions.$regex
+            : new RegExp(conditions.$regex);
+
+        regex.lastIndex = 0;
+
+        if (!regex.test(fieldValue)) {
+          return false;
+        }
+      }
     }
     return true;
+  }
+
+  private precompileRegexes(filter: QueryFilter<T>): QueryFilter<T> {
+    const compiled: Record<string, any> = {};
+    for (const [key, condition] of Object.entries(filter)) {
+      if (condition !== null && typeof condition === "object") {
+        const conditions = { ...condition } as Record<string, any>;
+        const isOperatorObject = Object.keys(conditions).some((k) => k.startsWith("$"));
+        if (isOperatorObject && "$regex" in conditions) {
+          const regex = conditions["$regex"];
+          conditions["$regex"] = regex instanceof RegExp ? regex : new RegExp(regex);
+        }
+        compiled[key] = conditions;
+      } else {
+        compiled[key] = condition;
+      }
+    }
+    return compiled as QueryFilter<T>;
   }
 }
 
@@ -220,6 +323,8 @@ class ZerithDBDexie extends Dexie {
     super(`zerithdb_${appId}`);
   }
 
+
+
   /**
    * Ensure a named collection exists, creating it via a Dexie version
    * upgrade if it has not been registered yet.
@@ -230,7 +335,7 @@ class ZerithDBDexie extends Dexie {
   ensureCollection(name: string): Table {
     if (!this.tableMap.has(name)) {
       this._currentSchema[name] = "_id, _createdAt, _updatedAt";
-      
+
       // We must increment the version for every new collection added dynamically
       const nextVersion = Math.max(this.verno, this._pendingVersion) + 1;
       this._pendingVersion = nextVersion;
@@ -245,6 +350,32 @@ class ZerithDBDexie extends Dexie {
     // biome-ignore lint: map guarantees this is defined
     return this.tableMap.get(name)!;
   }
+
+  ensureGraphTables(graphName: string): { nodesTable: Table; edgesTable: Table } {
+  const nodesKey = `__graph_nodes_${graphName}`;
+  const edgesKey = `__graph_edges_${graphName}`;
+
+  if (!this.tableMap.has(nodesKey) || !this.tableMap.has(edgesKey)) {
+    this._currentSchema[nodesKey] = "_id, _createdAt, _updatedAt";
+    this._currentSchema[edgesKey] = "_id, from, to, label, _createdAt";
+
+    const nextVersion = Math.max(this.verno, this._pendingVersion) + 1;
+    this._pendingVersion = nextVersion;
+
+    if (this.isOpen()) {
+      this.close();
+    }
+
+    this.version(nextVersion).stores(this._currentSchema);
+    this.tableMap.set(nodesKey, this.table(nodesKey));
+    this.tableMap.set(edgesKey, this.table(edgesKey));
+  }
+
+  return {
+    nodesTable: this.tableMap.get(nodesKey)!,
+    edgesTable: this.tableMap.get(edgesKey)!,
+  };
+}
 }
 
 /**
@@ -257,18 +388,41 @@ export class DbClient {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private readonly collections = new Map<string, CollectionClient<any>>();
 
+  private readonly graphs = new Map<string, GraphClient<any>>();
+
   constructor(config: ZerithDBConfig) {
     this.appId = config.appId;
     this.dexie = new ZerithDBDexie(config.appId);
   }
 
   collection<T extends Record<string, any>>(name: string): CollectionClient<T> {
+    if (typeof name !== "string" || name.trim() === "") {
+      throw new ZerithDBError(
+        ErrorCode.DB_INIT_FAILED,
+        "Collection name must be a non-empty string"
+      );
+    }
     if (!this.collections.has(name)) {
       const table = this.dexie.ensureCollection(name);
       this.collections.set(name, new CollectionClient<T>(table as Table<Document<T>>, name));
     }
     return this.collections.get(name) as CollectionClient<T>;
   }
+
+  graph<T extends Record<string, any> = Record<string, any>>(name: string): GraphClient<T> {
+  if (!this.graphs.has(name)) {
+    const { nodesTable, edgesTable } = this.dexie.ensureGraphTables(name);
+    this.graphs.set(
+      name,
+      new GraphClient<T>(
+        nodesTable as Table<GraphNode<T>>,
+        edgesTable as Table<GraphEdge>,
+        name
+      )
+    );
+  }
+  return this.graphs.get(name) as GraphClient<T>;
+}
 
   async getMemoryStats(): Promise<{ recordCount: number; collections: Record<string, number> }> {
     const collections: Record<string, number> = {};
