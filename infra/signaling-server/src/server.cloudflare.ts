@@ -1,9 +1,15 @@
-import { createLogger, generateSessionId, parseJsonBody, verifyRoomToken, getEnv } from "./internal/types.js";
+/// <reference types="@cloudflare/workers-types" />
+
+import { createLogger, generateSessionId, verifyRoomToken, getEnv } from "./internal/types.js";
 import { RoomState, SignalingRelay } from "./internal/room-state.js";
 
 const LOG_LEVEL = (getEnv("LOG_LEVEL") || "info") as "debug" | "info" | "warn" | "error";
 const JWT_SECRET = getEnv("JWT_SECRET");
 const VERSION = "0.1.0";
+
+declare const WebSocketPair: {
+  new (): { server: WebSocket; client: WebSocket };
+};
 
 const logger = createLogger(LOG_LEVEL);
 
@@ -17,8 +23,10 @@ const messageHandler = {
 
 const relay = new SignalingRelay(rooms, messageHandler, logger);
 
-interface CloudflarePeer extends WebSocket {
+interface CloudflarePeer {
   peerId?: string;
+  send(data: string): void;
+  close(code?: number, reason?: string): void;
 }
 
 const activeConnections = new Map<number, CloudflarePeer>();
@@ -109,7 +117,7 @@ async function handleWebSocket(request: Request): Promise<Response> {
 
   logger.info(`[+] peer=${peerId} joined room=${roomId} via WebSocket`);
 
-  client.addEventListener("message", (event) => {
+  client.addEventListener("message", (event: MessageEvent) => {
     try {
       const msg = JSON.parse(event.data as string);
       msg.from = peerId;
@@ -137,7 +145,7 @@ async function handleWebSocket(request: Request): Promise<Response> {
   return new Response(null, {
     status: 101,
     webSocket: pair.server,
-  });
+  } as ResponseInit);
 }
 
 function broadcastToConnections(roomId: string, excludePeerId: string, msg: object): void {
@@ -145,7 +153,7 @@ function broadcastToConnections(roomId: string, excludePeerId: string, msg: obje
   for (const peer of peers) {
     if (peer.peerId === excludePeerId) continue;
     for (const [, conn] of activeConnections) {
-      if ((conn as CloudflarePeer).peerId === peer.peerId && conn.readyState === 1) {
+      if (conn.peerId === peer.peerId) {
         conn.send(JSON.stringify(msg));
         break;
       }

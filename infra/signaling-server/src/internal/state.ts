@@ -55,45 +55,6 @@ export class InMemoryState implements StateBackend {
   }
 }
 
-export class DurableObjectsState implements StateBackend {
-  private roomStorage: DurableObjectStorage;
-  private sessionStorage: DurableObjectStorage;
-
-  constructor(roomStorage: DurableObjectStorage, sessionStorage: DurableObjectStorage) {
-    this.roomStorage = roomStorage;
-    this.sessionStorage = sessionStorage;
-  }
-
-  async getRoom(roomId: string): Promise<RoomData | null> {
-    const data = await this.roomStorage.get(roomId);
-    return data as RoomData | null;
-  }
-
-  async setRoom(roomId: string, data: RoomData): Promise<void> {
-    await this.roomStorage.put(roomId, data);
-  }
-
-  async deleteRoom(roomId: string): Promise<void> {
-    await this.roomStorage.delete(roomId);
-  }
-
-  async getSession(sessionId: string): Promise<SessionData | null> {
-    const data = await this.sessionStorage.get(sessionId);
-    return data as SessionData | null;
-  }
-
-  async setSession(sessionId: string, data: SessionData): Promise<void> {
-    await this.sessionStorage.put(sessionId, data);
-  }
-
-  async deleteSession(sessionId: string): Promise<void> {
-    await this.sessionStorage.delete(sessionId);
-  }
-}
-
-export function createStateBackend(type?: string): StateBackend {
-  if (type === "cloudflare-durable-objects") {
-    throw new Error("Cloudflare Durable Objects requires storage instance");
-  }
+export function createStateBackend(): StateBackend {
   return new InMemoryState();
 }
