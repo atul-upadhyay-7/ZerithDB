@@ -179,11 +179,9 @@ jobs:
           repo = os.environ['GITHUB_REPOSITORY']
 
           print(f"Applying labels: {labels}")
-          cmd = ['gh', 'pr', 'edit', pr, '--repo', repo]
-          for label in labels:
-              cmd.extend(['--add-label', label])
-
-          result = subprocess.run(cmd, capture_output=True, text=True)
+          payload = json.dumps({"labels": labels})
+          cmd = ['gh', 'api', f'repos/{repo}/issues/{pr}/labels', '--input', '-']
+          result = subprocess.run(cmd, input=payload, capture_output=True, text=True)
           if result.returncode != 0:
               print(f"Failed to apply labels: {result.stderr}")
           else:
