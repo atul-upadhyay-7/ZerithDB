@@ -9,7 +9,30 @@
  *   import { recordPeerJoined, recordPeerLeft, recordMessageRelayed } from "./metrics.js";
  */
 
-import { metrics, type ObservableResult } from "@opentelemetry/api";
+import {
+  metrics,
+  type ObservableResult,
+  type Counter,
+  type ObservableGauge,
+} from "@opentelemetry/api";
+
+type MessageRelayedAttributes = {
+  "relay.type": "unicast" | "broadcast";
+  transport: "ws" | "poll";
+};
+
+type PeerJoinedAttributes = {
+  transport: "ws" | "poll";
+};
+
+type PeerLeftAttributes = {
+  transport: "ws" | "poll";
+  reason: "graceful" | "timeout" | "error";
+};
+
+type RoomsActiveAttributes = Record<string, never>;
+type PeersActiveAttributes = Record<string, never>;
+type PollingSessionsActiveAttributes = Record<string, never>;
 
 const meter = metrics.getMeter("zerithdb-signaling", "0.1.0");
 
@@ -19,28 +42,35 @@ const meter = metrics.getMeter("zerithdb-signaling", "0.1.0");
  * Total number of signaling messages relayed since process start.
  * Tagged with `relay.type` = "unicast" | "broadcast" and `transport` = "ws" | "poll".
  */
-const messagesRelayedCounter = meter.createCounter("zerithdb.signaling.messages_relayed", {
-  description: "Total signaling messages relayed between peers",
-  unit: "messages",
-});
+const messagesRelayedCounter: Counter<MessageRelayedAttributes> =
+  meter.createCounter<MessageRelayedAttributes>("zerithdb.signaling.messages_relayed", {
+    description: "Total signaling messages relayed between peers",
+    unit: "messages",
+  });
 
 /**
  * Total number of peers that have joined rooms since process start.
  * Tagged with `transport` = "ws" | "poll".
  */
-const peersJoinedCounter = meter.createCounter("zerithdb.signaling.peers_joined", {
-  description: "Total peers that have joined a room",
-  unit: "peers",
-});
+const peersJoinedCounter: Counter<PeerJoinedAttributes> = meter.createCounter<PeerJoinedAttributes>(
+  "zerithdb.signaling.peers_joined",
+  {
+    description: "Total peers that have joined a room",
+    unit: "peers",
+  }
+);
 
 /**
  * Total number of peers that have left rooms since process start.
  * Tagged with `transport` = "ws" | "poll" and `reason` = "graceful" | "timeout" | "error".
  */
-const peersLeftCounter = meter.createCounter("zerithdb.signaling.peers_left", {
-  description: "Total peers that have left a room",
-  unit: "peers",
-});
+const peersLeftCounter: Counter<PeerLeftAttributes> = meter.createCounter<PeerLeftAttributes>(
+  "zerithdb.signaling.peers_left",
+  {
+    description: "Total peers that have left a room",
+    unit: "peers",
+  }
+);
 
 // ─── Observable gauges (backed by live state maps) ───────────────────────────
 
@@ -49,32 +79,37 @@ let getRoomCount: () => number = () => 0;
 let getPeerCount: () => number = () => 0;
 let getPollingSessionCount: () => number = () => 0;
 
-meter
-  .createObservableGauge("zerithdb.signaling.rooms_active", {
+const roomsActiveGauge: ObservableGauge<RoomsActiveAttributes> =
+  meter.createObservableGauge<RoomsActiveAttributes>("zerithdb.signaling.rooms_active", {
     description: "Number of currently active rooms",
     unit: "rooms",
-  })
-  .addCallback((result: ObservableResult) => {
-    result.observe(getRoomCount());
   });
+roomsActiveGauge.addCallback((result: ObservableResult<RoomsActiveAttributes>) => {
+  result.observe(getRoomCount());
+});
 
-meter
-  .createObservableGauge("zerithdb.signaling.peers_active", {
+const peersActiveGauge: ObservableGauge<PeersActiveAttributes> =
+  meter.createObservableGauge<PeersActiveAttributes>("zerithdb.signaling.peers_active", {
     description: "Total number of currently connected peers across all rooms",
     unit: "peers",
-  })
-  .addCallback((result: ObservableResult) => {
-    result.observe(getPeerCount());
   });
+peersActiveGauge.addCallback((result: ObservableResult<PeersActiveAttributes>) => {
+  result.observe(getPeerCount());
+});
 
-meter
-  .createObservableGauge("zerithdb.signaling.polling_sessions_active", {
-    description: "Number of currently active long-polling sessions",
-    unit: "sessions",
-  })
-  .addCallback((result: ObservableResult) => {
+const pollingSessionsActiveGauge: ObservableGauge<PollingSessionsActiveAttributes> =
+  meter.createObservableGauge<PollingSessionsActiveAttributes>(
+    "zerithdb.signaling.polling_sessions_active",
+    {
+      description: "Number of currently active long-polling sessions",
+      unit: "sessions",
+    }
+  );
+pollingSessionsActiveGauge.addCallback(
+  (result: ObservableResult<PollingSessionsActiveAttributes>) => {
     result.observe(getPollingSessionCount());
-  });
+  }
+);
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
