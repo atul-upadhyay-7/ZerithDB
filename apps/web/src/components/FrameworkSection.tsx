@@ -2,13 +2,13 @@ export default function FrameworkSection() {
   return (
     <div className="pt-16 pb-8 px-6 bg-transparent">
       <div className="max-w-5xl mx-auto text-center">
-        <h2 className="text-xs font-bold tracking-widest uppercase text-gray-600 mb-8">
+        <h2 className="text-xs font-bold tracking-widest uppercase text-muted-foreground mb-8">
           Works seamlessly with your favorite frameworks
         </h2>
 
-        <div className="flex flex-wrap justify-center items-center gap-10 md:gap-16 text-gray-800">
+        <div className="flex flex-wrap justify-center items-center gap-10 md:gap-16 text-foreground opacity-80 dark:opacity-100 transition-all duration-500">
           {/* Next.js Logo */}
-          <div className="flex items-center gap-2 font-bold text-xl tracking-tight opacity-60 grayscale hover:grayscale-0 transition-all duration-500">
+          <div className="flex items-center gap-2 font-bold text-xl tracking-tight">
             <svg
               viewBox="0 0 180 36"
               height="22"
@@ -24,7 +24,7 @@ export default function FrameworkSection() {
           </div>
 
           {/* React Logo */}
-          <div className="flex items-center gap-2 font-semibold text-xl text-[#61DAFB] opacity-60 grayscale hover:grayscale-0 transition-all duration-500">
+          <div className="flex items-center gap-2 font-semibold text-xl text-[#61DAFB]">
             <svg
               viewBox="-11.5 -10.23174 23 20.46348"
               height="28"
@@ -38,34 +38,34 @@ export default function FrameworkSection() {
                 <ellipse rx="11" ry="4.2" transform="rotate(120)" />
               </g>
             </svg>
-            <span className="text-gray-900 tracking-tight">React</span>
+            <span className="text-foreground tracking-tight">React</span>
           </div>
 
           {/* Vue Logo */}
-          <div className="flex items-center gap-2 font-semibold text-xl text-[#41B883] opacity-60 grayscale hover:grayscale-0 transition-all duration-500">
+          <div className="flex items-center gap-2 font-semibold text-xl text-[#41B883]">
             <svg viewBox="0 0 118 100" height="26" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path fill="currentColor" d="M0 0h24L59 60l35-60h24L59 100 0 0z" />
               <path fill="#34495E" d="M24 0h24l11 19 11-19h24L59 60 24 0z" />
             </svg>
-            <span className="text-gray-900 tracking-tight">Vue</span>
+            <span className="text-foreground tracking-tight">Vue</span>
           </div>
 
           {/* Astro Logo */}
-          <div className="flex items-center gap-1 font-bold text-2xl tracking-tighter [filter:none]">
-            <span style={{ color: "#7c2d12" }}>astro</span>
+          <div className="flex items-center gap-1 font-bold text-2xl tracking-tighter [filter:none] text-[#FF5D01]">
+            <span>astro</span>
           </div>
 
           {/* Nuxt Logo */}
-          <div className="flex items-center gap-2 font-bold text-2xl tracking-tight text-[#00C58E] opacity-60 grayscale hover:grayscale-0 transition-all duration-500">
+          <div className="flex items-center gap-2 font-bold text-2xl tracking-tight text-[#00C58E]">
             <svg viewBox="0 0 100 100" height="24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path fill="currentColor" d="M50 10 L90 80 L10 80 Z" opacity="0.3" />
               <path fill="currentColor" d="M60 30 L95 90 L25 90 Z" />
             </svg>
-            <span className="text-gray-900">Nuxt</span>
+            <span className="text-foreground">Nuxt</span>
           </div>
 
           {/* Python Logo */}
-          <div className="flex items-center gap-2 font-semibold text-xl text-[#3776AB] opacity-60 grayscale hover:grayscale-0 transition-all duration-500">
+          <div className="flex items-center gap-2 font-semibold text-xl text-[#3776AB]">
             <svg
               viewBox="0 0 448 512"
               height="28"
@@ -74,7 +74,7 @@ export default function FrameworkSection() {
             >
               <path d="M439.8 200.5c-7.7-30.9-22.3-54.2-53.4-54.2h-40.1v47.4c0 36.8-31.2 67.8-68.6 67.8H172.7c-4.5 0-8.1 3.6-8.1 8.1v4.8c0 4.5 3.6 8.1 8.1 8.1h104.6c40.2 0 73.9-33.3 73.9-73.5V146.3h-40.1c-31.1 0-45.7 23.3-53.4 54.2-7.8 31.4-1.1 63.8 18.5 86.4l2.1 2.4c19.9 23 48 37.1 79.1 37.1h39.1c31.1 0 45.7-23.3 53.4-54.2 7.7-31.4 1.1-63.8-18.5-86.4l-2.1-2.4c-19.9-23-48-37.1-79.1-37.1zM282.1 407.1c-16.1 0-29.1-13-29.1-29.1 0-16.1 13-29.1 29.1-29.1s29.1 13 29.1 29.1c0 16.1-13 29.1-29.1 29.1zM111.9 220.3c-7.8-31.4-1.1-63.8 18.5-86.4l2.1-2.4c19.9-23 48-37.1 79.1-37.1h39.1c31.1 0 45.7 23.3 53.4 54.2 7.7 31.4 1.1 63.8-18.5 86.4l-2.1 2.4c-19.9 23-48 37.1-79.1 37.1h-39.1c-31.1 0-45.7-23.3-53.4-54.2zM165.9 104.9c16.1 0 29.1 13 29.1 29.1 0 16.1-13 29.1-29.1 29.1s-29.1-13-29.1-29.1c0-16.1 13-29.1 29.1-29.1z" />
             </svg>
-            <span className="text-gray-900 tracking-tight">Python</span>
+            <span className="text-foreground tracking-tight">Python</span>
           </div>
         </div>
       </div>
