@@ -99,16 +99,9 @@ jobs:
           primary_key  = os.environ.get('GROQ_API_KEY', '')
           fallback_key = os.environ.get('GROQ_API_KEY_FALLBACK', '')
           if not primary_key and not fallback_key:
-              print("WARNING: Neither GROQ_API_KEY nor GROQ_API_KEY_FALLBACK is set. Skipping AI review.", file=sys.stderr)
-              review = {
-                  "verdict": "COMMENT",
-                  "summary": "AI Code Review was skipped because no Groq API key is configured.",
-                  "issues": [], "positives": [], "key_suggestion": "",
-                  "safe_to_merge": True, "suggested_labels": []
-              }
-              with open('review.json', 'w') as f:
-                  json.dump(review, f, indent=2)
-              sys.exit(0)
+              print("ERROR: Neither GROQ_API_KEY nor GROQ_API_KEY_FALLBACK is set. Failing the workflow to prevent accidental skips.", file=sys.stderr)
+              sys.exit(1)
+
 
           url = "https://api.groq.com/openai/v1/chat/completions"
           payload = {

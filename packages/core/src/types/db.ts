@@ -16,6 +16,7 @@ export type Document<T extends Record<string, any> = Record<string, any>> = T & 
 /**
  * MongoDB-style query filter operators.
  * Nested object fields are matched by equality.
+ * Includes metadata fields (_id, _createdAt, _updatedAt) from Document<T>.
  */
 export type QueryFilter<T extends Record<string, any>> = {
   [K in keyof Document<T>]?:

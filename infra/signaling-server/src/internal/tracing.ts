@@ -47,55 +47,65 @@ const OTLP_ENDPOINT = process.env["OTEL_EXPORTER_OTLP_ENDPOINT"] ?? "http://loca
 let sdk: NodeSDK | null = null;
 
 if (!SDK_DISABLED) {
-  const traceExporter = new OTLPTraceExporter({
-    url: `${OTLP_ENDPOINT}/v1/traces`,
-  });
-
-  const metricExporter = new OTLPMetricExporter({
-    url: `${OTLP_ENDPOINT}/v1/metrics`,
-  });
-
-  sdk = new NodeSDK({
-    resource: new Resource({
-      [ATTR_SERVICE_NAME]: SERVICE_NAME,
-      [ATTR_SERVICE_VERSION]: SERVICE_VERSION,
-    }),
-    traceExporter,
-    metricReader: new PeriodicExportingMetricReader({
-      exporter: metricExporter,
-      /** Export metrics every 30 seconds */
-      exportIntervalMillis: 30_000,
-    }),
-    instrumentations: [
-      getNodeAutoInstrumentations({
-        // HTTP instrumentation covers all /poll/* routes automatically
-        "@opentelemetry/instrumentation-http": {
-          enabled: true,
-          /** Attach route-level attributes to spans */
-          requestHook: (span, request: ClientRequest | IncomingMessage) => {
-            if ("url" in request && typeof request.url === "string") {
-              span.setAttribute("http.route", request.url.split("?")[0] ?? "/");
-            }
-          },
-        },
-        // Disable noisy fs instrumentation
-        "@opentelemetry/instrumentation-fs": { enabled: false },
-      }),
-    ],
-  });
-
-  // start() is synchronous in this SDK version. We wrap it in a try/catch
-  // so a misconfigured exporter logs clearly rather than crashing the server.
   try {
-    sdk.start();
+    // Validate OTLP_ENDPOINT URL structure early
+    new URL(OTLP_ENDPOINT);
+
+    const traceExporter = new OTLPTraceExporter({
+      url: `${OTLP_ENDPOINT}/v1/traces`,
+    });
+
+    const metricExporter = new OTLPMetricExporter({
+      url: `${OTLP_ENDPOINT}/v1/metrics`,
+    });
+
+    sdk = new NodeSDK({
+      resource: new Resource({
+        [ATTR_SERVICE_NAME]: SERVICE_NAME,
+        [ATTR_SERVICE_VERSION]: SERVICE_VERSION,
+      }),
+      traceExporter,
+      metricReader: new PeriodicExportingMetricReader({
+        exporter: metricExporter,
+        /** Export metrics every 30 seconds */
+        exportIntervalMillis: 30_000,
+      }),
+      instrumentations: [
+        getNodeAutoInstrumentations({
+          // HTTP instrumentation covers all /poll/* routes automatically
+          "@opentelemetry/instrumentation-http": {
+            enabled: true,
+            /** Attach route-level attributes to spans */
+            requestHook: (span, request: ClientRequest | IncomingMessage) => {
+              if ("url" in request && typeof request.url === "string") {
+                span.setAttribute("http.route", request.url.split("?")[0] ?? "/");
+              }
+            },
+          },
+          // Disable noisy fs instrumentation
+          "@opentelemetry/instrumentation-fs": { enabled: false },
+        }),
+      ],
+    });
+
+    // start() is synchronous in this SDK version. We wrap it in a try/catch
+    // so a misconfigured exporter logs clearly rather than crashing the server.
+    try {
+      sdk.start();
+      console.log(
+        `[otel] Tracing enabled → ${OTLP_ENDPOINT} (service: ${SERVICE_NAME} v${SERVICE_VERSION})`
+      );
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[otel] SDK failed to start: ${message}`);
+      sdk = null;
+    }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[otel] SDK failed to start: ${message}`);
+    console.error(
+      `[otel] Telemetry disabled: exporter endpoint "${OTLP_ENDPOINT}" is not a valid URL. Error: ${message}`
+    );
   }
-
-  console.log(
-    `[otel] Tracing enabled → ${OTLP_ENDPOINT} (service: ${SERVICE_NAME} v${SERVICE_VERSION})`
-  );
 }
 
 // ─── Graceful shutdown ───────────────────────────────────────────────────────
