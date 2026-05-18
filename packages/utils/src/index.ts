@@ -141,11 +141,7 @@ export function randomId(): string {
   return crypto.randomUUID();
 }
 
-// ─── Query Translation ────────────────────────────────────────────────────────
+// ─── Fractional Indexing helpers ──────────────────────────────────────────────
 
-export {
-  translateNaturalQuery,
-  parseOfflineNaturalQuery,
-  type QueryTranslationProvider,
-  type QueryTranslatorOptions,
-} from "./query-translator.js";
+export { generateKeyBetween, rebalanceKeys } from "./fractional-indexing.js";
+
