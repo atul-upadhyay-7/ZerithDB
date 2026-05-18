@@ -309,6 +309,49 @@ export class CollectionClient<T extends Record<string, any> = Record<string, any
     );
   }
 
+  /**
+   * Retrieve all unique values for a specific field across the collection.
+   * Resolves issue #80.
+   *
+   * @param field - The field name to extract unique values from
+   * @param filter - Optional filter criteria to restrict the documents scanned
+   * @returns An array of unique values matching the field type
+   */
+  async distinct<K extends keyof Document<T>>(
+    field: K,
+    filter: QueryFilter<T> = {}
+  ): Promise<Document<T>[K][]> {
+    return wrapIDBOperation(
+      ErrorCode.DB_READ_FAILED,
+      `Failed to fetch distinct values for field "${String(field)}" in collection "${this.collectionName}"`,
+      async () => {
+        const compiledFilter = this.precompileRegexes(filter);
+        const uniqueValues = new Set<Document<T>[K]>();
+
+        await this.table.each((doc) => {
+          if (this.matchesFilter(doc, compiledFilter)) {
+            // Check if document exists and safely check if the field is present
+            if (doc && typeof doc === "object" && field in doc) {
+              const val = doc[field];
+
+              // Only collect primitive values (strings, numbers, booleans) as requested by review
+              if (
+                val !== undefined &&
+                val !== null &&
+                typeof val !== "object" &&
+                typeof val !== "function"
+              ) {
+                uniqueValues.add(val);
+              }
+            }
+          }
+        });
+
+        return Array.from(uniqueValues);
+      }
+    );
+  }
+
   private applyUpdateSpec(doc: Document<T>, spec: UpdateSpec<T>, updatedAt: number): Document<T> {
     const next = {
       ...doc,
