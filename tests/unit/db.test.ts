@@ -29,7 +29,7 @@ describe("DbClient — CollectionClient", () => {
       const result = await col.insert({ text: "hello" });
       expect(result.id).toBeDefined();
       expect(typeof result.id).toBe("string");
-      expect(result.id.length).toBeGreaterThan(0);
+      expect(String(result.id).length).toBeGreaterThan(0);
     });
 
     it("should securely persist the inserted document in the database so that subsequent find() queries can retrieve it", async () => {
@@ -115,6 +115,62 @@ describe("DbClient — CollectionClient", () => {
       await col.insert({ x: 1 });
       const result = await col.find({ x: { $gt: 100 } });
       expect(result).toHaveLength(0);
+    });
+
+    it("should support regex matching with native RegExp patterns", async () => {
+      const col = db.collection<{ title: string }>("notes-regex-native");
+      await col.insertMany([
+        { title: "Team meeting notes" },
+        { title: "Shopping list" },
+        { title: "Daily standup" },
+      ]);
+
+      const result = await col.find({ title: { $regex: /meeting/ } });
+      expect(result).toHaveLength(1);
+      expect(result[0]?.title).toBe("Team meeting notes");
+    });
+
+    it("should support case-insensitive regex matching", async () => {
+      const col = db.collection<{ title: string }>("notes-regex-case");
+      await col.insertMany([
+        { title: "MEETING prep" },
+        { title: "meeting recap" },
+        { title: "brainstorm" },
+      ]);
+
+      const result = await col.find({ title: { $regex: /meeting/i } });
+      expect(result).toHaveLength(2);
+    });
+
+    it("should support string-based regex patterns with flags", async () => {
+      const col = db.collection<{ title: string }>("notes-regex-flags");
+      await col.insertMany([
+        { title: "MEETING agenda" },
+        { title: "meeting recap" },
+        { title: "roadmap" },
+      ]);
+
+      const result = await col.find({ title: { $regex: "meeting", $flags: "i" } });
+      expect(result).toHaveLength(2);
+    });
+
+    it("should return no matches when regex pattern does not match", async () => {
+      const col = db.collection<{ title: string }>("notes-regex-nomatch");
+      await col.insertMany([{ title: "Groceries" }, { title: "Workout" }]);
+
+      const result = await col.find({ title: { $regex: /meeting/ } });
+      expect(result).toHaveLength(0);
+    });
+
+    it("should handle invalid regex inputs gracefully without throwing", async () => {
+      const col = db.collection<{ title: string }>("notes-regex-invalid");
+      await col.insertMany([{ title: "meeting notes" }, { title: "other" }]);
+
+      const invalidPattern = await col.find({ title: { $regex: "(" } });
+      expect(invalidPattern).toHaveLength(0);
+
+      const invalidFlags = await col.find({ title: { $regex: "meeting", $flags: "z" } });
+      expect(invalidFlags).toHaveLength(0);
     });
   });
 
@@ -214,6 +270,60 @@ describe("DbClient — CollectionClient", () => {
       await col.insertMany([{ x: 1 }, { x: 2 }, { x: 3 }]);
       expect(await col.count()).toBe(3);
       expect(await col.count({ x: { $gt: 1 } })).toBe(2);
+    });
+  });
+
+  describe("createIndex()", () => {
+    it("should require a comparator for non-primitive field values", async () => {
+      const col = db.collection<{ meta: { rank: number } }>("meta");
+      await col.insert({ meta: { rank: 1 } });
+
+      await expect(
+        col.createIndex({ name: "meta_idx", field: "meta" })
+      ).rejects.toMatchObject({ code: ErrorCode.SDK_INVALID_CONFIG });
+    });
+
+    it("should allow missing optional field values", async () => {
+      const col = db.collection<{ rank?: number | null }>("optional-rank");
+      await col.insertMany([{ rank: 2 }, {}, { rank: null }]);
+
+      await expect(
+        col.createIndex({ name: "rank_idx", field: "rank" })
+      ).resolves.toBeUndefined();
+    });
+
+    it("should wrap comparator errors as DB_READ_FAILED", async () => {
+      const col = db.collection<{ score: number }>("score");
+      await col.insertMany([{ score: 1 }, { score: 2 }]);
+
+      await expect(
+        col.createIndex({
+          name: "score_idx",
+          field: "score",
+          compare: () => {
+            throw new Error("boom");
+          },
+        })
+      ).rejects.toMatchObject({ code: ErrorCode.DB_READ_FAILED });
+    });
+
+    it("should use custom comparator for range queries and ordering", async () => {
+      const col = db.collection<{ name: string }>("people");
+      await col.insertMany([
+        { name: "z" },
+        { name: "aa" },
+        { name: "bbb" },
+        { name: "cccc" },
+      ]);
+
+      await col.createIndex({
+        name: "name_length",
+        field: "name",
+        compare: (a, b) => (a as string).length - (b as string).length,
+      });
+
+      const results = await col.find({ name: { $gt: "m" } });
+      expect(results.map((r) => r.name)).toEqual(["aa", "bbb", "cccc"]);
     });
   });
 });

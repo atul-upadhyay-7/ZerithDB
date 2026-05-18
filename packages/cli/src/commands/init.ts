@@ -104,10 +104,9 @@ export async function initCommand(
 
     try {
       await execa("npm", ["install"], { cwd: targetDir });
-
-      installSpinner.succeed("Dependencies installed successfully");
+      installSpinner.succeed(chalk.green("Dependencies installed"));
     } catch {
-      installSpinner.warn("Dependency installation failed. Please run `npm install` manually.");
+      installSpinner.warn(chalk.yellow("Failed to install dependencies. Run `npm install` manually."));
     }
   }
 
@@ -124,7 +123,16 @@ ${chalk.green("✔")} ${chalk.bold("Your ZerithDB app is ready!")}
   - Check out the ${chalk.blue("Live Playground")} at https://zerithdb.dev/playground
   - Need help? Join our ${chalk.blue("Discord")}: https://discord.gg/MhvuDvzWfF
 
-  ${chalk.gray("Documentation:")} https://zerithdb.dev/docs
+${chalk.gray("Local development:")}
+  ${chalk.cyan("http://localhost:3000")}
+
+${chalk.gray("Available commands:")}
+  ${chalk.cyan("npm run dev")}    Start development server
+  ${chalk.cyan("npm run build")}  Create production build
+  ${chalk.cyan("npm run start")}  Start production server
+
+${chalk.gray("Docs:")} https://zerithdb.netlify.app/docs
+${chalk.gray("Discord:")} https://discord.gg/MhvuDvzWfF
 `);
 }
 
@@ -213,7 +221,7 @@ const app = createApp({
 app.sync.enable();
 
 export default function App() {
-  return <div>Hello from ZerithDB! Edit src/App.tsx to get started.</div>;
+  return <div>Hello from ZerithDB! Edit src/app/page.tsx to get started.</div>;
 }
 `;
 }
