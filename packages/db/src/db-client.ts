@@ -39,17 +39,61 @@ export class CollectionClient<T extends Record<string, any> = Record<string, any
   }
 
   /**
-   * Subscribe to changes in the collection.
-   * Uses Dexie's liveQuery to reactively notify when documents change.
+   * Subscribe to live changes in the collection.
+   * Uses Dexie's liveQuery to reactively re-invoke the callback whenever
+   * matching documents are inserted, updated, or deleted in IndexedDB.
    *
-   * @param callback - Function called with the updated list of all documents
-   * @returns An unsubscribe function
+   * Fix (BUG-02): Previously the filter was hardcoded to `{}` (match all),
+   * meaning every subscriber always received the entire collection regardless
+   * of what they wanted to observe. The filter is now passed through to
+   * `find()` so only matching documents are streamed to the callback.
+   *
+   * **Important:** The filter is evaluated *inside* the liveQuery closure so
+   * Dexie can correctly track which IndexedDB reads to watch for reactivity.
+   * Moving it outside the closure would break live updates.
+   *
+   * @param callback - Called with the current matching documents on every change
+   * @param filter   - Optional MongoDB-style filter (same as `find(filter)`).
+   *                   Defaults to `{}` which matches all documents.
+   *                   Existing callers that omit the filter are unaffected.
+   * @returns An unsubscribe function — call it to stop the subscription
+   *
+   * @example
+   * ```typescript
+   * // Subscribe to ALL documents (existing behaviour — unchanged)
+   * const unsub = todos.subscribe((docs) => console.log(docs));
+   *
+   * // Subscribe to only undone tasks (new capability)
+   * const unsub = todos.subscribe(
+   *   (docs) => console.log("Undone:", docs),
+   *   { done: false }
+   * );
+   *
+   * // Subscribe with operators
+   * const unsub = todos.subscribe(
+   *   (docs) => console.log("High priority:", docs),
+   *   { priority: { $gte: 3 } }
+   * );
+   *
+   * unsub(); // stop listening
+   * ```
    */
-  subscribe(callback: (documents: Document<T>[]) => void): () => void {
-    const observable = liveQuery(() => this.find());
+  subscribe(
+    callback: (documents: Document<T>[]) => void,
+    filter: QueryFilter<T> = {}
+  ): () => void {
+    // The filter reference is captured inside the liveQuery closure.
+    // This is required — Dexie tracks all IDB reads that happen INSIDE the
+    // closure to build its reactive dependency graph. If find() were called
+    // outside, Dexie would not know which table changes to watch.
+    const observable = liveQuery(() => this.find(filter));
     const subscription = observable.subscribe({
       next: (docs) => callback(docs),
-      error: (err) => console.error(`Error in collection subscription:`, err),
+      error: (err) =>
+        console.error(
+          `[ZerithDB] Error in subscription to collection "${this.collectionName}":`,
+          err
+        ),
     });
     return () => subscription.unsubscribe();
   }
