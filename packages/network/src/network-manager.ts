@@ -522,11 +522,10 @@ export class NetworkManager extends EventEmitter<NetworkEvents> {
       this.handleSignalingMessage(JSON.parse(data) as SignalingMessage);
     });
 
-    transport.onClose(() => {
-      this.stopPeerHealthCheck();
-      if (!this.disposed && this.config.network?.autoReconnect !== false) {
-        this.scheduleReconnect(roomId);
-      }
+   transport.onClose(() => {
+  if (!this.disposed && (this.config.network?.autoReconnect ?? true)) {
+    this.scheduleReconnect(roomId);
+    }
     });
 
     transport.onError((err) => {
