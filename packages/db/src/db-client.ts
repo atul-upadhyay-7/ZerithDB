@@ -328,8 +328,11 @@ export class CollectionClient<T extends Record<string, any> = Record<string, any
           return false;
         }
 
-        const regex =
-          conditions.$regex instanceof RegExp ? conditions.$regex : new RegExp(conditions.$regex);
+        const regex = conditions.$regex;
+
+        if (!(regex instanceof RegExp)) {
+          return false;
+        }
 
         regex.lastIndex = 0;
 
@@ -348,8 +351,7 @@ export class CollectionClient<T extends Record<string, any> = Record<string, any
         const conditions = { ...condition } as Record<string, any>;
         const isOperatorObject = Object.keys(conditions).some((k) => k.startsWith("$"));
         if (isOperatorObject && "$regex" in conditions) {
-          const regex = conditions["$regex"];
-          conditions["$regex"] = regex instanceof RegExp ? regex : new RegExp(regex);
+          conditions["$regex"] = this.compileRegexCondition(conditions);
         }
         compiled[key] = conditions;
       } else {
@@ -357,6 +359,35 @@ export class CollectionClient<T extends Record<string, any> = Record<string, any
       }
     }
     return compiled as QueryFilter<T>;
+  }
+
+  private compileRegexCondition(conditions: Record<string, any>): RegExp | null {
+    const rawRegex = conditions.$regex;
+    const rawFlags =
+      typeof conditions.$flags === "string"
+        ? conditions.$flags
+        : typeof conditions.$options === "string"
+          ? conditions.$options
+          : undefined;
+
+    try {
+      if (rawRegex instanceof RegExp) {
+        if (!rawFlags) {
+          return rawRegex;
+        }
+
+        const mergedFlags = Array.from(new Set((rawRegex.flags + rawFlags).split(""))).join("");
+        return new RegExp(rawRegex.source, mergedFlags);
+      }
+
+      if (typeof rawRegex === "string") {
+        return new RegExp(rawRegex, rawFlags);
+      }
+
+      return null;
+    } catch {
+      return null;
+    }
   }
 }
 
