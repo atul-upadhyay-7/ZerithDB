@@ -2,28 +2,7 @@ import SimplePeer from "simple-peer";
 import type { ZerithDBConfig, PeerId, PeerInfo, MediaStreamMetadata } from "zerithdb-core";
 import { EventEmitter, ZerithDBError, ErrorCode } from "zerithdb-core";
 import type { AuthManager } from "zerithdb-auth";
-import type { SignalingTransport } from "./signaling-transport.js";
-import { WebSocketTransport } from "./transports/websocket-transport.js";
-import { PollingTransport } from "./transports/polling-transport.js";
-
-export interface MediaStreamMetadataInput {
-  kind?: "camera" | "screen" | "custom";
-  [key: string]: unknown;
-}
-
-
-
-export interface WebRtcBufferStats {
-  peerCount: number;
-  bufferedBytes: number;
-  peers: Array<{ peerId: PeerId; bufferedAmount: number }>;
-}
-
-/** simple-peer exposes the underlying RTCDataChannel as a private field */
-interface SimplePeerWithChannel {
-  connected: boolean;
-  _channel?: RTCDataChannel;
-}
+import { RelaySelector } from "./relay-selector.js";
 
 type NetworkEvents = {
   "peer:connected": PeerInfo;
@@ -71,19 +50,16 @@ export class NetworkManager extends EventEmitter<NetworkEvents> {
   private readonly peers = new Map<PeerId, SimplePeer.Instance>();
   private readonly peerInfo = new Map<PeerId, PeerInfo>();
   private localPeerId: PeerId = crypto.randomUUID();
+  private readonly relaySelector: RelaySelector;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
   private disposed = false;
-  private currentUrlIndex = 0;
-  private readonly localStreamsMetadata = new Map<string, MediaStreamMetadata>();
-  private readonly nameRegistry = new NameRegistry();
-  private ensResolver: MockENSResolver;
-
   constructor(
     private readonly config: ZerithDBConfig,
     private readonly auth: AuthManager
   ) {
     super();
+    this.relaySelector = new RelaySelector(this.localPeerId);
   }
 
 
@@ -270,9 +246,16 @@ export class NetworkManager extends EventEmitter<NetworkEvents> {
   sendTo(peerId: PeerId, message: { type: string; payload: string | Uint8Array }): void {
     const peer = this.peers.get(peerId);
     if (peer?.connected) {
-      const data = JSON.stringify(message);
-      const bytesLength = typeof TextEncoder !== "undefined" ? new TextEncoder().encode(data).length : data.length;
-      this.throttledSend(peerId, peer, data, bytesLength);
+      peer.send(JSON.stringify(message));
+    } else {
+      // Intelligent relay: find the next hop towards the target
+      const nextHop = this.relaySelector.getNextHop(peerId, Array.from(this.peers.keys()));
+      if (nextHop) {
+        this.sendTo(nextHop, {
+          type: "relay",
+          payload: JSON.stringify({ target: peerId, message }),
+        });
+      }
     }
   }
 
@@ -577,13 +560,13 @@ export class NetworkManager extends EventEmitter<NetworkEvents> {
 
   private handleSignalingMessage(msg: SignalingMessage): void {
     switch (msg.type) {
-      case "announcement":
-        console.warn(`[ZerithDB] System Announcement: ${msg.payload}`);
-        this.emit("announcement", msg.payload as string);
-        break;
+      case "peer-list": {
+        // Server sends list of existing peers — pick intelligent subset
+        const allPeers = msg.payload as PeerId[];
+        const maxPeers = this.config.sync?.maxPeers ?? 10;
+        const selectedPeers = this.relaySelector.selectPeers(allPeers, maxPeers);
 
-      case "peer-list":
-        for (const peerId of msg.payload as PeerId[]) {
+        for (const peerId of selectedPeers) {
           if (peerId !== this.localPeerId) {
             this.knownPeerIds.add(peerId);
             // Deterministic initiator: only smaller ID initiates connection.
@@ -629,6 +612,7 @@ export class NetworkManager extends EventEmitter<NetworkEvents> {
           }
         }
         break;
+      }
 
       case "offer":
         if (msg.to === this.localPeerId) {
@@ -721,7 +705,19 @@ export class NetworkManager extends EventEmitter<NetworkEvents> {
 
         const msg = JSON.parse(
           typeof data === "string" ? data : new TextDecoder().decode(data)
-        ) as { type: string; payload: string | Uint8Array };
+        ) as any;
+
+        if (msg.type === "relay") {
+          const { target, message } = JSON.parse(msg.payload);
+          if (target === this.localPeerId) {
+            this.emit("message", { ...message, from: remotePeerId });
+          } else {
+            // Forward to next hop
+            this.sendTo(target, message);
+          }
+          return;
+        }
+
         this.emit("message", { ...msg, from: remotePeerId });
       } catch {
         // Ignore malformed messages
