@@ -1,5 +1,9 @@
-/** Unique identifier for a document — UUID v7 string */
-export type DocumentId = string;
+/**
+ * Unique identifier for a document.
+ * - UUID v7 string (default — globally unique, sortable by insertion time)
+ * - Auto-incrementing integer (opt-in via `{ idStrategy: "autoincrement" }`)
+ */
+export type DocumentId = string | number;
 
 /** Name of a collection within ZerithDB */
 export type CollectionName = string;
@@ -11,6 +15,12 @@ export type DocumentMetadata = {
   _createdAt: number;
   /** Last-updated-at timestamp in Unix milliseconds */
   _updatedAt: number;
+  /** Vector clock tracking causal dependencies per peer */
+  _vclock: Record<string, number>;
+  /** Lamport timestamp used for fallback conflict resolution */
+  _lamport: number;
+  /** Tombstone marker for logical deletes during P2P sync */
+  _deleted?: boolean;
 };
 
 /** Base document shape. All stored documents have system fields added automatically. */
@@ -68,3 +78,27 @@ export type FindResult<T extends Record<string, any>> = {
   documents: Document<T>[];
   count: number;
 };
+
+/**
+ * A generic schema validator interface.
+ * Any object with a `parse(data: unknown): T` method satisfies this interface.
+ * This is compatible with Zod schemas out of the box:
+ *
+ * @example
+ * ```typescript
+ * import { z } from "zod";
+ * const schema = z.object({ text: z.string(), done: z.boolean() });
+ * const todos = app.db("todos", { schema });
+ * ```
+ */
+export interface SchemaValidator<T> {
+  parse(data: unknown): T;
+}
+
+/**
+ * Options for configuring a collection instance.
+ */
+export interface CollectionOptions<T extends Record<string, any>> {
+  /** Optional schema validator. If provided, all inserts and updates are validated before being written. */
+  schema?: SchemaValidator<T>;
+}

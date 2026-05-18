@@ -1050,6 +1050,7 @@ function ClientCard({
 
 export default function PlaygroundPage() {
   const [isOnline, setIsOnline] = useState(true);
+  const isBrowserOnline = useOnlineStatus();
   const [syncCount, setSyncCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [isPeerConnected, setIsPeerConnected] = useState(false);
@@ -1230,6 +1231,12 @@ export default function PlaygroundPage() {
             <ArrowRightLeft className="w-3.5 h-3.5 shrink-0" />
             <span className="truncate">CRDT Sync: {syncCount}</span>
           </div>
+          {!isBrowserOnline && (
+            <div className="hidden md:flex items-center gap-2 text-xs font-medium text-red-700 bg-red-100 px-3 py-1.5 rounded-full animate-in fade-in slide-in-from-top-2 duration-300">
+              <WifiOff className="w-3.5 h-3.5" />
+              Browser Offline
+            </div>
+          )}
 
           <div
             className={`hidden md:flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-full shrink-0 ${

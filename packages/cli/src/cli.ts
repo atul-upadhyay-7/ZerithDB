@@ -13,7 +13,7 @@ import { generateCommand } from "./commands/generate.js";
 
 import { checkConnectivity } from "./checkConnectivity.js";
 
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 
 console.log(
   chalk.cyan(`
@@ -56,23 +56,12 @@ async function main() {
     .option("-p, --port <port>", "Port to listen on", "4000")
     .action(signalCommand);
 
-  // LINT
   program
-    .command("lint [schema-path]")
-    .description("Lint the db schema for anti-patterns and missing indexes")
-    .action(lintCommand);
-
-  // FORMAT
-  program
-    .command("format [schema-path]")
-    .description("Format the db schema using Prettier")
-    .action(formatCommand);
-
-  // MAINTENANCE
-  program
-    .command("maintenance <status>")
-    .description("Toggle maintenance mode for the signaling server (on/off)")
-    .action(maintenanceCommand);
+    .command("generate")
+    .description("Generate ZerithDB validation schemas from a Prisma schema")
+    .option("-s, --schema <schema>", "Path to schema.prisma file", "./prisma/schema.prisma")
+    .option("-o, --out <out>", "Path to output generated TypeScript file", "./src/zerith-schemas.ts")
+    .action(generateCommand);
 
   // GENERATE (aliased to seed)
   program

@@ -1,12 +1,15 @@
 import { Dexie, type Table, liveQuery } from "dexie";
 import { v7 as uuidv7 } from "uuid";
+
 import type {
   ZerithDBConfig,
   Document,
+  DocumentId,
   QueryFilter,
   QueryOptions,
   InsertResult,
   UpdateSpec,
+  ValidatorRegistry,
 } from "zerithdb-core";
 import { ZerithDBError, ErrorCode } from "zerithdb-core";
 import { wrapIDBOperation } from "./internal/wrap-idb-operation.js";
@@ -20,6 +23,9 @@ import type { GraphNode, GraphEdge } from "zerithdb-core";
  * All operations are async and backed by IndexedDB.
  */
 export class CollectionClient<T extends Record<string, any> = Record<string, any>> {
+  private readonly indexes = new Map<string, IndexState<T>>();
+  private readonly docIndexKeys = new Map<DocumentId, Map<string, unknown>>();
+
   constructor(
     private readonly table: Table<Document<T>>,
     private readonly collectionName: string,
@@ -59,7 +65,7 @@ export class CollectionClient<T extends Record<string, any> = Record<string, any
     }
 
     const now = Date.now();
-    const id = uuidv7();
+    const id = document._id || uuidv7();
     const doc: Document<T> = {
       ...docToInsert,
       _id: id,
@@ -95,6 +101,7 @@ export class CollectionClient<T extends Record<string, any> = Record<string, any
           `Failed to bulk insert into collection "${this.collectionName}": document cannot be null or undefined`
         );
       }
+      this.validateData(doc, `insertMany[${i}]`);
     }
 
     const processedDocs: T[] = [];
@@ -127,7 +134,16 @@ export class CollectionClient<T extends Record<string, any> = Record<string, any
         this.notifyMutation?.();
         return docs.map((d) => ({ id: d._id }));
       }
-    );
+      await this.table.bulkAdd(docs);
+      return docs.map((d) => ({ id: d._id }));
+    } catch (err) {
+      await this.rebuildIndexes();
+      throw new ZerithDBError(
+        ErrorCode.DB_WRITE_FAILED,
+        `Failed to bulk insert into collection "${this.collectionName}"`,
+        { cause: err }
+      );
+    }
   }
 
   /**
@@ -203,7 +219,7 @@ export class CollectionClient<T extends Record<string, any> = Record<string, any
     return wrapIDBOperation(
       ErrorCode.DB_READ_FAILED,
       `Failed to get document "${id}" from "${this.collectionName}"`,
-      () => this.table.get(id)
+      () => table.get(id)
     );
     if (!doc) return undefined;
     return this.restoreIpfsReferences(doc);
@@ -267,7 +283,16 @@ export class CollectionClient<T extends Record<string, any> = Record<string, any
         this.notifyMutation?.();
         return matches.length;
       }
-    );
+      await this.table.bulkDelete(matches.map((d) => d._id));
+      return matches.length;
+    } catch (err) {
+      await this.rebuildIndexes();
+      throw new ZerithDBError(
+        ErrorCode.DB_DELETE_FAILED,
+        `Failed to delete documents from "${this.collectionName}"`,
+        { cause: err }
+      );
+    }
   }
 
   async clearAll(): Promise<void> {
@@ -305,7 +330,38 @@ export class CollectionClient<T extends Record<string, any> = Record<string, any
 
         return total;
       }
-    );
+
+      // Detect complex operators like $gt, $lt, $in, $nin, etc.
+      const hasComplexOps = Object.values(filter).some(
+        (v) =>
+          v && typeof v === "object" && Object.keys(v).some((k) => k !== "$eq" && k.startsWith("$"))
+      );
+
+      // Simple equality filters - filter in memory (fast enough for most datasets)
+      if (!hasComplexOps) {
+        // Fix: Change type from Table to any or Collection
+        let collection: any = this.table;
+
+        for (const [key, value] of Object.entries(filter)) {
+          const targetValue =
+            value && typeof value === "object" && "$eq" in value ? value.$eq : value;
+          collection = collection.filter((doc: Document<T>) => doc[key] === targetValue);
+        }
+
+        const allDocs = await collection.toArray();
+        return allDocs.length;
+      }
+
+      // Complex operators - must fetch all and filter in memory
+      const allDocs = await this.table.toArray();
+      return allDocs.filter((doc: Document<T>) => this.matchesFilter(doc, filter)).length;
+    } catch (err) {
+      throw new ZerithDBError(
+        ErrorCode.DB_READ_FAILED,
+        `Failed to count documents in "${this.collectionName}"`,
+        { cause: err }
+      );
+    }
   }
 
  private async checkPermission(action: "read" | "write" | "create" | "delete"): Promise<void> {
@@ -360,9 +416,10 @@ export class CollectionClient<T extends Record<string, any> = Record<string, any
   private matchesFilter(doc: Document<T>, filter: QueryFilter<T>): boolean {
     for (const [key, condition] of Object.entries(filter)) {
       const fieldValue = (doc as Record<string, any>)[key];
+      const comparator = comparators?.get(key);
 
       if (condition === null || typeof condition !== "object") {
-        if (fieldValue !== condition) return false;
+        if (value !== condition) return false;
         continue;
       }
 
@@ -378,11 +435,11 @@ export class CollectionClient<T extends Record<string, any> = Record<string, any
       if ("$ne" in conditions && fieldValue === conditions["$ne"]) return false;
       if ("$gt" in conditions && !((fieldValue as any) > (conditions["$gt"] as never)))
         return false;
-      if ("$gte" in conditions && !((fieldValue as any) >= (conditions["$gte"] as never)))
+      if ("$gte" in ops && !(comparator ? comparator(fieldValue, ops["$gte"]) >= 0 : (fieldValue as any) >= (ops["$gte"] as never)))
         return false;
-      if ("$lt" in conditions && !((fieldValue as any) < (conditions["$lt"] as never)))
+      if ("$lt" in ops && !(comparator ? comparator(fieldValue, ops["$lt"]) < 0 : (fieldValue as any) < (ops["$lt"] as never)))
         return false;
-      if ("$lte" in conditions && !((fieldValue as any) <= (conditions["$lte"] as never)))
+      if ("$lte" in ops && !(comparator ? comparator(fieldValue, ops["$lte"]) <= 0 : (fieldValue as any) <= (ops["$lte"] as never)))
         return false;
       if ("$in" in conditions && !(conditions["$in"] as unknown[]).includes(fieldValue))
         return false;
@@ -401,6 +458,7 @@ export class CollectionClient<T extends Record<string, any> = Record<string, any
         if (!regex.test(fieldValue)) return false;
       }
     }
+
     return true;
   }
 
@@ -455,6 +513,7 @@ export class CollectionClient<T extends Record<string, any> = Record<string, any
 class ZerithDBDexie extends Dexie {
   private readonly tableMap = new Map<string, Table>();
   private _currentSchema: Record<string, string> = {};
+  private _initPromise: Promise<void> | null = null;
   private _pendingVersion = 0;
   readonly activeFetches = new Map<string, Promise<Blob>>();
 
@@ -467,7 +526,7 @@ class ZerithDBDexie extends Dexie {
    * upgrade if it has not been registered yet.
    *
    * @param name - The collection name to create or retrieve
-   * @returns The Dexie {@link Table} handle for the collection
+   * @returns A promise that resolves to the Dexie {@link Table} handle for the collection
    */
   ensureCollection(name: string): Table {
     if (!this.tableMap.has(name)) {
@@ -559,7 +618,6 @@ export class DbClient extends EventEmitter<{ "mutation": { collection: string } 
         }
       ));
     }
-    return this.collections.get(name) as CollectionClient<T>;
   }
 
   graph<T extends Record<string, any> = Record<string, any>>(name: string): GraphClient<T> {
@@ -608,23 +666,27 @@ export class DbClient extends EventEmitter<{ "mutation": { collection: string } 
     }
 
     return wrapIDBOperation(
-      ErrorCode.DB_READ_FAILED,
-      "Failed to export local backup snapshot",
+      ErrorCode.DB_WRITE_FAILED,
+      "Failed to import local backup snapshot",
       async () => {
-        const collectionNames = options.collections ?? this.allCollectionNames();
-        const collections: BackupSnapshot["collections"] = {};
-
-        for (const name of collectionNames) {
-          const table = this.dexie.ensureCollection(name);
-          collections[name] = (await table.toArray()) as Document<Record<string, any>>[];
+        if (!snapshot || snapshot.format !== "zerithdb.local-backup.v1") {
+          throw new ZerithDBError(
+            ErrorCode.DB_INIT_FAILED,
+            "Invalid snapshot format. Must be 'zerithdb.local-backup.v1'"
+          );
         }
 
-        return {
-          format: "zerithdb.local-backup.v1",
-          appId: this.appId,
-          generatedAt: new Date().toISOString(),
-          collections,
-        };
+        const overwrite = options.overwrite ?? true;
+
+        for (const [name, documents] of Object.entries(snapshot.collections)) {
+          const table = this.dexie.ensureCollection(name);
+          if (overwrite) {
+            await table.clear();
+          }
+          if (documents.length > 0) {
+            await table.bulkPut(documents);
+          }
+        }
       }
     );
   }

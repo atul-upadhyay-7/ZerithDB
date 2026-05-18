@@ -1,3 +1,5 @@
+import type { EphemeralConfig } from "./sync.js";
+
 export interface SyncConfig {
   /**
    * WebSocket URL of the ZerithDB signaling server.
@@ -78,6 +80,16 @@ export interface DebugConfig {
 
 export interface NetworkConfig {
   /**
+   * Human-readable alias for this peer in the mesh.
+   */
+  name?: string;
+
+  /**
+   * Optional ENS identity to attach to this peer.
+   */
+  ens?: string;
+
+  /**
    * Whether to automatically reconnect when a peer disconnects.
    * @default true
    */
@@ -88,8 +100,7 @@ export interface NetworkConfig {
    * @default 1000
    */
   reconnectDelay?: number;
-  /** Optional human-readable peer alias */
-  name?: string;
+}
 
 
   /** Optional ENS identity */
@@ -168,6 +179,7 @@ export interface ZerithDBConfig {
    */
   appId: string;
 
+  db?: DbConfig;
   sync?: SyncConfig;
   auth?: AuthConfig;
   network?: NetworkConfig;

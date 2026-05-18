@@ -1,4 +1,5 @@
 import * as Y from "yjs";
+import * as awarenessProtocol from "y-protocols/awareness";
 import { IndexeddbPersistence } from "y-indexeddb";
 import type { ZerithDBConfig, SyncState, SyncPlugin, IncomingPeerDataMessage } from "zerithdb-core";
 import { EventEmitter } from "zerithdb-core";
@@ -25,24 +26,24 @@ type SyncEvents = {
 };
 
 /**
- * CRDT sync engine — manages one Yjs Y.Doc per collection.
- * Local writes update the Y.Doc, which generates binary deltas sent to peers.
- * Incoming peer deltas are applied to the Y.Doc, which reactively updates the DB.
+ * Deterministic sync engine using Vector Clocks and Lamport timestamps.
+ * Replaces Yjs with an explicit state-based replication protocol.
+ * Integrates Inbox/Outbox queues to handle offline-first mutation logging.
  */
 export class SyncEngine extends EventEmitter<SyncEvents> {
-  /** Low-latency, non-persistent metadata sync for presence, media, and UI state. */
-  readonly ephemeral: EphemeralStateManager;
-
   private readonly docs = new Map<string, Y.Doc>();
   private readonly persistences = new Map<string, IndexeddbPersistence>();
+  private readonly awarenesses = new Map<string, awarenessProtocol.Awareness>();
   readonly outbox: OutboxQueue<Uint8Array>;
   readonly inbox: InboxQueue<Uint8Array>;
+  public readonly ephemeral: EphemeralStateManager;
   private _enabled = false;
   
   private _state: SyncState = { synced: false, pendingUpdates: 0, connectedPeers: 0 };
   private plugins = new Map<string, SyncPlugin>();
   private activePluginVersion = 1;
   private pendingUpdates = new Map<string, Uint8Array[]>();
+
   private syncTimer: any = null;
   private syncTimerIsRaf: boolean = false;
   private protocol: SyncProtocol = new DefaultSyncProtocol();
@@ -54,17 +55,19 @@ export class SyncEngine extends EventEmitter<SyncEvents> {
     private readonly auth: AuthManager
   ) {
     super();
-    this.ephemeral = new EphemeralStateManager(config, network);
+
     this.outbox = new OutboxQueue(config.appId);
     this.inbox = new InboxQueue(config.appId);
+    this.ephemeral = new EphemeralStateManager(config, network);
+
     this.onPeerUpdate = this.onPeerUpdate.bind(this);
+    this.onLocalMutation = this.onLocalMutation.bind(this);
     this.onPeerConnected = this.onPeerConnected.bind(this);
     this.onPeerDisconnected = this.onPeerDisconnected.bind(this);
 
     this.outbox.onChange(() => {
       void this.refreshPendingCount();
     });
-    void this.refreshPendingCount();
 
     if (typeof document !== "undefined") {
       document.addEventListener("visibilitychange", this.handleVisibilityChange);
@@ -93,6 +96,7 @@ export class SyncEngine extends EventEmitter<SyncEvents> {
         } else {
           clearTimeout(this.syncTimer);
         }
+
         this.syncTimer = null;
         this.syncTimerIsRaf = false;
       }
@@ -101,11 +105,12 @@ export class SyncEngine extends EventEmitter<SyncEvents> {
 
   enable(): void {
     if (this._enabled) return;
+
     this._enabled = true;
+
     this.network.on("message", this.onPeerUpdate);
     this.network.on("peer:connected", this.onPeerConnected);
     this.network.on("peer:disconnected", this.onPeerDisconnected);
-    this.ephemeral.enable();
     this.updateState({ synced: true, connectedPeers: this.network.connectedPeerCount });
     void this.flushOutbox();
 
@@ -117,6 +122,7 @@ export class SyncEngine extends EventEmitter<SyncEvents> {
 
   disable(): void {
     this._enabled = false;
+
     this.network.off("message", this.onPeerUpdate);
     this.network.off("peer:connected", this.onPeerConnected);
   this.network.off("peer:disconnected", this.onPeerDisconnected);
@@ -142,6 +148,7 @@ export class SyncEngine extends EventEmitter<SyncEvents> {
 
   registerPlugin(plugin: SyncPlugin): void {
     this.plugins.set(plugin.id, plugin);
+
     if (plugin.version > this.activePluginVersion) {
       this.activePluginVersion = plugin.version;
     }
@@ -178,6 +185,7 @@ export class SyncEngine extends EventEmitter<SyncEvents> {
       `zerithdb_sync_${this.config.appId}_${collectionName}`,
       doc
     );
+
     this.persistences.set(collectionName, persistence);
 // Broadcast local updates to peers (batched via requestAnimationFrame)
 doc.on("update", (update: Uint8Array, origin: unknown) => {
@@ -214,6 +222,7 @@ doc.on("update", (update: Uint8Array, origin: unknown) => {
     }
 
     let finalUpdate: Uint8Array | null = update;
+
     for (const plugin of this.plugins.values()) {
       if (plugin.onBeforeApplyUpdate) {
         finalUpdate = await plugin.onBeforeApplyUpdate(collectionName, finalUpdate, fromPeer);
@@ -221,32 +230,86 @@ doc.on("update", (update: Uint8Array, origin: unknown) => {
       }
     }
 
-    void this.handleRemoteUpdate(collectionName, finalUpdate, fromPeer);
+    const doc = this.getDoc(collectionName);
+    const dataMap = doc.getMap(collectionName);
+    const changedKeys = new Set<string>();
+    let observing = false;
+
+    const observer = (event: Y.YMapEvent<any>) => {
+      for (const [key] of event.changes.keys) {
+        changedKeys.add(key);
+      }
+    };
+
+    if (this.validatorRegistry?.has(collectionName)) {
+      observing = true;
+      dataMap.observe(observer);
+    }
+
+    try {
+      await this.handleRemoteUpdate(collectionName, finalUpdate, fromPeer);
+    } finally {
+      if (observing) {
+        dataMap.unobserve(observer);
+      }
+    }
+
+    if (observing && changedKeys.size > 0) {
+      for (const key of changedKeys) {
+        const value = dataMap.get(key);
+        if (value === undefined) continue; // deleted key
+
+        const result = this.validatorRegistry!.validateRemote(collectionName, value);
+
+        if (!result.valid) {
+          this.emit("validation:error", {
+            collectionName,
+            fromPeer,
+            issues: result.issues,
+          });
+        }
+      }
+    }
+  }
+
+  /**
+   * Apply a remote awareness update.
+   */
+  applyRemoteAwarenessUpdate(collectionName: string, update: Uint8Array): void {
+    const awareness = this.getAwareness(collectionName);
+    awarenessProtocol.applyAwarenessUpdate(awareness, update, "remote");
   }
 
   async dispose(): Promise<void> {
     if (typeof document !== "undefined") {
       document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     }
+
     this.disable();
-    this.ephemeral.dispose();
     if (this.syncTimer) {
       if (this.syncTimerIsRaf && typeof window !== "undefined" && window.cancelAnimationFrame) {
         window.cancelAnimationFrame(this.syncTimer);
       } else {
         clearTimeout(this.syncTimer);
       }
+
       this.syncTimer = null;
       this.syncTimerIsRaf = false;
     }
+
     for (const [, persistence] of this.persistences) {
       await persistence.destroy();
     }
+
     for (const [, doc] of this.docs) {
       doc.destroy();
     }
+    for (const [, awareness] of this.awarenesses) {
+      awareness.destroy();
+    }
     this.docs.clear();
     this.persistences.clear();
+    this.awarenesses.clear();
     this.pendingUpdates.clear();
   }
 
@@ -254,10 +317,12 @@ doc.on("update", (update: Uint8Array, origin: unknown) => {
 
   private queueUpdate(collectionName: string, update: Uint8Array): void {
     let updates = this.pendingUpdates.get(collectionName);
+
     if (!updates) {
       updates = [];
       this.pendingUpdates.set(collectionName, updates);
     }
+
     updates.push(update);
 
     if (
@@ -266,6 +331,7 @@ doc.on("update", (update: Uint8Array, origin: unknown) => {
     ) {
       if (typeof window !== "undefined" && window.requestAnimationFrame) {
         this.syncTimer = window.requestAnimationFrame(() => this.flushUpdates());
+
         this.syncTimerIsRaf = true;
       } else {
         this.syncTimer = setTimeout(() => this.flushUpdates(), 50);
@@ -276,11 +342,11 @@ doc.on("update", (update: Uint8Array, origin: unknown) => {
 
   private flushUpdates(): void {
     this.syncTimer = null;
-    this.syncTimerIsRaf = false;
     for (const [collectionName, updates] of this.pendingUpdates.entries()) {
       const merged = Y.mergeUpdates(updates);
       void this.handleLocalUpdate(collectionName, merged);
     }
+
     this.pendingUpdates.clear();
   }
 
@@ -299,6 +365,7 @@ doc.on("update", (update: Uint8Array, origin: unknown) => {
         .catch(() => {
           console.warn(`Peer ${msg.from} failed to upgrade. Ignoring their updates.`);
         });
+
       return;
     }
 
@@ -306,7 +373,7 @@ doc.on("update", (update: Uint8Array, origin: unknown) => {
       return;
     }
 
-    if (msg.type !== "sync-update") return;
+    if (msg.type !== "sync-update" && msg.type !== "awareness-update") return;
 
     let payload: Uint8Array;
 
@@ -319,7 +386,11 @@ doc.on("update", (update: Uint8Array, origin: unknown) => {
     const decoded = this.decodeMessage(payload);
     if (decoded === null) return;
 
-    void this.applyRemoteUpdate(decoded.collectionName, decoded.update, msg.from);
+    if (msg.type === "sync-update") {
+      void this.applyRemoteUpdate(decoded.collectionName, decoded.update, msg.from);
+    } else {
+      this.applyRemoteAwarenessUpdate(decoded.collectionName, decoded.update);
+    }
   }
 
   private onPeerConnected(peer: { peerId: string }): void {
@@ -348,6 +419,7 @@ doc.on("update", (update: Uint8Array, origin: unknown) => {
   private async handleLocalUpdate(collectionName: string, update: Uint8Array): Promise<void> {
     try {
       let finalUpdate: Uint8Array | null = update;
+
       for (const plugin of this.plugins.values()) {
         if (plugin.onBeforeSendUpdate) {
           finalUpdate = await plugin.onBeforeSendUpdate(collectionName, finalUpdate);
@@ -363,12 +435,16 @@ doc.on("update", (update: Uint8Array, origin: unknown) => {
 
       if (!this._enabled) return;
 
-      this.emit("update:local", { collectionName, update: finalUpdate });
+      this.emit("update:local", {
+        collectionName,
+        update: finalUpdate,
+      });
+
       if (this.network.connectedPeerCount === 0) return;
 
       this.network.broadcast({
         type: "sync-update",
-        payload: this.encodeMessage(collectionName, finalUpdate),
+        payload: this.protocol.encode(collectionName, finalUpdate),
       });
 
       await this.outbox.acknowledge(mutation.id);
@@ -383,16 +459,19 @@ doc.on("update", (update: Uint8Array, origin: unknown) => {
     fromPeer: string
   ): Promise<void> {
     let mutationId: string | null = null;
-
     try {
+      const rawPayload = typeof msg.payload === "string" ? msg.payload : new TextDecoder().decode(msg.payload);
+      const { collectionName, doc, peerId } = JSON.parse(rawPayload);
+      
       const mutation = await this.inbox.enqueue({
         type: "sync-update",
         collection: collectionName,
-        payload: update,
+        payload: doc,
       });
+
       mutationId = mutation.id;
     } catch {
-      // If queue persistence fails, still apply the update.
+      // continue
     }
 
     try {
@@ -439,10 +518,16 @@ doc.on("update", (update: Uint8Array, origin: unknown) => {
       }
 
       Y.applyUpdate(doc, update, "remote");
+
       if (mutationId) {
         await this.inbox.acknowledge(mutationId);
       }
-      this.emit("update:remote", { collectionName, update, fromPeer });
+
+      this.emit("update:remote", {
+        collectionName,
+        update,
+        fromPeer,
+      });
     } catch {
       if (mutationId) {
         await this.inbox.markFailed(mutationId);
@@ -450,9 +535,11 @@ doc.on("update", (update: Uint8Array, origin: unknown) => {
     }
   }
 
-  private async flushOutbox(): Promise<void> {
-    if (!this._enabled) return;
-    if (this.network.connectedPeerCount === 0) return;
+  private onPeerConnected(peer: { peerId: string }): void {
+  const peerId = peer.peerId;
+    this.updateState({ connectedPeers: this.network.connectedPeerCount });
+    void this.sendCapability(peerId);
+    void this.flushOutbox();
 
     const pending = await this.outbox.getPending();
     for (const mutation of pending) {
@@ -502,6 +589,9 @@ doc.on("update", (update: Uint8Array, origin: unknown) => {
 
   private async refreshPendingCount(): Promise<void> {
     const pending = await this.outbox.count();
-    this.updateState({ pendingUpdates: pending });
+
+    this.updateState({
+      pendingUpdates: pending,
+    });
   }
 }

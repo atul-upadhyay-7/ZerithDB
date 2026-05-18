@@ -8,6 +8,7 @@ export {
   ErrorCode,
 } from "./errors.js";
 export { Logger } from "./internal/logger.js";
+export { ZerithValidationError } from "./internal/validation-error.js";
 export type {
   ZerithDBConfig,
   SyncConfig,
@@ -16,15 +17,18 @@ export type {
   DebugConfig,
   ConflictResolverConfig,
 } from "./types/config.js";
+
 export type {
   Document,
   DocumentId,
   CollectionName,
+  CollectionOptions,
   QueryFilter,
   QueryOptions,
   UpdateSpec,
   InsertResult,
   FindResult,
+  CollectionOptions,
 } from "./types/db.js";
 export type {
   PeerId,
@@ -44,10 +48,12 @@ export type {
   SyncPlugin,
   SyncProtocol,
   EphemeralPeerState,
+  MediaStreamMetadata,
   ActiveSpeakerState,
   VideoParticipantState,
+  SyncPlugin,
+  MediaStreamKind,
 } from "./types/sync.js";
-
 export type {
   GraphNode,
   GraphEdge,

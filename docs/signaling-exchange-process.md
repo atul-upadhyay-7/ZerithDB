@@ -100,9 +100,7 @@ For every discovered peer, ZerithDB creates a peer connection:
 this.createPeer(peerId, true);
 ```
 
-The `true` value marks the peer as the **initiator**, meaning it starts the WebRTC handshake.
-
----
+## The `true` value marks the peer as the **initiator**, meaning it starts the WebRTC handshake.
 
 ## 3. Offer and Answer Exchange
 
@@ -160,9 +158,7 @@ The answer is handled using:
 case "answer":
 ```
 
-and applied to complete the connection setup.
-
----
+## and applied to complete the connection setup.
 
 ## 4. ICE Candidate Exchange
 

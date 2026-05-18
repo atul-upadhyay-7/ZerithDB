@@ -29,7 +29,7 @@ describe("DbClient — CollectionClient", () => {
       const result = await col.insert({ text: "hello" });
       expect(result.id).toBeDefined();
       expect(typeof result.id).toBe("string");
-      expect(result.id.length).toBeGreaterThan(0);
+      expect(String(result.id).length).toBeGreaterThan(0);
     });
 
     it("should securely persist the inserted document in the database so that subsequent find() queries can retrieve it", async () => {
@@ -264,12 +264,158 @@ describe("DbClient — CollectionClient", () => {
     });
   });
 
-  describe("count() - Counting the number of documents", () => {
-    it("should accurately return the total number of documents that match the given filter criteria", async () => {
-      const col = db.collection<{ x: number }>("counts");
-      await col.insertMany([{ x: 1 }, { x: 2 }, { x: 3 }]);
-      expect(await col.count()).toBe(3);
-      expect(await col.count({ x: { $gt: 1 } })).toBe(2);
+  describe("count()", () => {
+    beforeEach(async () => {
+      const col = db.collection<{ priority: number; status: string; tags: string[] }>("test");
+      await col.insertMany([
+        { priority: 1, status: "active", tags: ["urgent", "work"] },
+        { priority: 2, status: "pending", tags: ["work"] },
+        { priority: 3, status: "active", tags: ["personal"] },
+        { priority: 1, status: "done", tags: ["urgent"] },
+        { priority: 4, status: "active", tags: ["work", "urgent"] },
+        { priority: 2, status: "pending", tags: ["personal"] },
+      ]);
+    });
+
+    // Basic counts
+    it("should return total document count", async () => {
+      const col = db.collection("test");
+      expect(await col.count()).toBe(6);
+    });
+
+    it("should return 0 for empty collection", async () => {
+      const empty = db.collection("empty");
+      expect(await empty.count()).toBe(0);
+    });
+
+    // Simple equality
+    it("should count with simple equality", async () => {
+      const col = db.collection("test");
+      expect(await col.count({ status: "active" })).toBe(3);
+    });
+
+    it("should count with $eq operator", async () => {
+      const col = db.collection("test");
+      expect(await col.count({ status: { $eq: "pending" } })).toBe(2);
+    });
+
+    // Comparison operators
+    it("should count with $gt", async () => {
+      const col = db.collection("test");
+      expect(await col.count({ priority: { $gt: 2 } })).toBe(2);
+    });
+
+    it("should count with $gte", async () => {
+      const col = db.collection("test");
+      expect(await col.count({ priority: { $gte: 2 } })).toBe(4);
+    });
+
+    it("should count with $lt", async () => {
+      const col = db.collection("test");
+      expect(await col.count({ priority: { $lt: 2 } })).toBe(2);
+    });
+
+    it("should count with $lte", async () => {
+      const col = db.collection("test");
+      expect(await col.count({ priority: { $lte: 2 } })).toBe(4);
+    });
+
+    // Array operators
+    it("should count with $in", async () => {
+      const col = db.collection("test");
+      expect(await col.count({ priority: { $in: [1, 3] } })).toBe(3);
+    });
+
+    it("should count with $nin", async () => {
+      const col = db.collection("test");
+      expect(await col.count({ priority: { $nin: [1, 2] } })).toBe(2);
+    });
+
+    // Not equal operator
+    it("should count with $ne", async () => {
+      const col = db.collection("test");
+      expect(await col.count({ status: { $ne: "active" } })).toBe(3);
+    });
+
+    // Combined filters
+    it("should count with multiple simple conditions", async () => {
+      const col = db.collection("test");
+      expect(await col.count({ status: "active", priority: 1 })).toBe(1);
+    });
+
+    it("should count with mixed simple and complex", async () => {
+      const col = db.collection("test");
+      expect(await col.count({ status: "active", priority: { $gt: 2 } })).toBe(1);
+    });
+
+    it("should count with multiple complex operators", async () => {
+      const col = db.collection("test");
+      expect(await col.count({ priority: { $gte: 2, $lte: 3 } })).toBe(3);
+    });
+
+    // Edge cases
+    it("should return 0 for non-matching filter", async () => {
+      const col = db.collection("test");
+      expect(await col.count({ status: "nonexistent" })).toBe(0);
+    });
+
+    it("should handle empty object filter", async () => {
+      const col = db.collection("test");
+      expect(await col.count({})).toBe(6);
+    });
+  });
+
+  describe("createIndex()", () => {
+    it("should require a comparator for non-primitive field values", async () => {
+      const col = db.collection<{ meta: { rank: number } }>("meta");
+      await col.insert({ meta: { rank: 1 } });
+
+      await expect(
+        col.createIndex({ name: "meta_idx", field: "meta" })
+      ).rejects.toMatchObject({ code: ErrorCode.SDK_INVALID_CONFIG });
+    });
+
+    it("should allow missing optional field values", async () => {
+      const col = db.collection<{ rank?: number | null }>("optional-rank");
+      await col.insertMany([{ rank: 2 }, {}, { rank: null }]);
+
+      await expect(
+        col.createIndex({ name: "rank_idx", field: "rank" })
+      ).resolves.toBeUndefined();
+    });
+
+    it("should wrap comparator errors as DB_READ_FAILED", async () => {
+      const col = db.collection<{ score: number }>("score");
+      await col.insertMany([{ score: 1 }, { score: 2 }]);
+
+      await expect(
+        col.createIndex({
+          name: "score_idx",
+          field: "score",
+          compare: () => {
+            throw new Error("boom");
+          },
+        })
+      ).rejects.toMatchObject({ code: ErrorCode.DB_READ_FAILED });
+    });
+
+    it("should use custom comparator for range queries and ordering", async () => {
+      const col = db.collection<{ name: string }>("people");
+      await col.insertMany([
+        { name: "z" },
+        { name: "aa" },
+        { name: "bbb" },
+        { name: "cccc" },
+      ]);
+
+      await col.createIndex({
+        name: "name_length",
+        field: "name",
+        compare: (a, b) => (a as string).length - (b as string).length,
+      });
+
+      const results = await col.find({ name: { $gt: "m" } });
+      expect(results.map((r) => r.name)).toEqual(["aa", "bbb", "cccc"]);
     });
   });
 });
