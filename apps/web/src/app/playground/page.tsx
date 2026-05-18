@@ -30,49 +30,9 @@ type Note = {
   timestamp: number;
 };
 
-type Toast = {
-  id: string;
-  message: string;
-  type: "success" | "error";
+const formatTimestamp = (timestamp: number) => {
+  return new Date(timestamp).toISOString().slice(11, 19);
 };
-
-type Client = {
-  id: ClientId;
-  name: string;
-  color: string;
-  notes: Note[];
-  input: string;
-  identity: string;
-};
-
-const dummyMessage: Note = {
-  id: "1",
-  text: "Hello from Client A!",
-  senderId: "A",
-  timestamp: Date.now(),
-};
-
-const CLIENTS_CONFIG: Omit<Client, "notes" | "input" | "identity">[] = [
-  { id: "A", name: "Alice", color: "blue" },
-  { id: "B", name: "Bob", color: "purple" },
-];
-
-const INSTRUCTIONS = [
-  "Configure policies in the Security Enclave Settings Panel below.",
-  "Type a message and hit Save. If Biometric Prompt is enabled, authorize it!",
-  "Toggle simulated hardware off to test the Secure PIN fallback flow.",
-  "Outbound WebRTC syncs are signed and verified automatically using non-exportable enclave keys.",
-];
-
-// Helper to generate mock Ed25519 did:key identifiers
-async function generateMockDID(): Promise<string> {
-  const mockPublicKey = Array.from({ length: 32 }, () =>
-    Math.floor(Math.random() * 256)
-      .toString(16)
-      .padStart(2, "0")
-  ).join("");
-  return `did:key:z${mockPublicKey}`;
-}
 
 export default function PlaygroundPage() {
   const [isOnline, setIsOnline] = useState(true);
@@ -556,17 +516,124 @@ export default function PlaygroundPage() {
       </div>
 
       {/* MAIN PLAYGROUND */}
-      <main className="flex-1 max-w-7xl mx-auto w-full p-4 md:p-6 pt-2 md:pt-4 grid md:grid-cols-2 gap-6 md:gap-8 items-start overflow-x-hidden">
-        {clients.map((client) => (
-          <ClientCard
-            key={client.id}
-            client={client}
-            isLoading={isLoading}
-            onAddNote={handleAddNote}
-            onUpdateInput={updateInput}
-            onCopyIdentity={copyToClipboard}
-          />
-        ))}
+      <main className="flex-1 max-w-7xl mx-auto w-full p-6 grid md:grid-cols-2 gap-8 items-start mt-8">
+        {/* CLIENT A */}
+        <div className="bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden flex flex-col h-[600px]">
+          <div className="bg-gray-900 px-4 py-3 flex items-center justify-between border-b border-gray-800">
+            <div className="flex items-center gap-2 text-white">
+              <Laptop className="w-4 h-4 text-blue-400" />
+              <span className="text-sm font-semibold tracking-wide">Browser A (Alice)</span>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-gray-400 font-mono">
+              <Database className="w-3.5 h-3.5" /> IndexedDB Active
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
+            {clientA.length === 0 ? (
+              <div className="text-center text-gray-400 mt-20 text-sm">
+                No documents. Type below to create one.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {clientA.map((note) => (
+                  <div
+                    key={note.id}
+                    className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 animate-in fade-in slide-in-from-bottom-2 duration-300"
+                  >
+                    <p className="text-gray-800">{note.text}</p>
+                    <p className="text-[10px] text-gray-400 mt-2 uppercase tracking-wider font-mono">
+                      ID: {note.id} • {formatTimestamp(note.timestamp)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="p-4 bg-white border-t border-gray-100">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                addNote("A", inputA);
+              }}
+              className="flex gap-2"
+            >
+              <input
+                type="text"
+                value={inputA}
+                onChange={(e) => setInputA(e.target.value)}
+                placeholder="Type a message offline/online..."
+                className="flex-1 px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+              />
+              <button
+                type="submit"
+                className="bg-black text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-800 flex items-center gap-2"
+              >
+                <Save className="w-4 h-4" /> Save
+              </button>
+            </form>
+          </div>
+        </div>
+
+        {/* CLIENT B */}
+        <div className="bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden flex flex-col h-[600px]">
+          <div className="bg-gray-900 px-4 py-3 flex items-center justify-between border-b border-gray-800">
+            <div className="flex items-center gap-2 text-white">
+              <Laptop className="w-4 h-4 text-purple-400" />
+              <span className="text-sm font-semibold tracking-wide">Browser B (Bob)</span>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-gray-400 font-mono">
+              <Database className="w-3.5 h-3.5" /> IndexedDB Active
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
+            {clientB.length === 0 ? (
+              <div className="text-center text-gray-400 mt-20 text-sm">
+                No documents. Type below to create one.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {clientB.map((note) => (
+                  <div
+                    key={note.id}
+                    className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 animate-in fade-in slide-in-from-bottom-2 duration-300"
+                  >
+                    <p className="text-gray-800">{note.text}</p>
+                    <p className="text-[10px] text-gray-400 mt-2 uppercase tracking-wider font-mono">
+                      ID: {note.id} • {formatTimestamp(note.timestamp)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="p-4 bg-white border-t border-gray-100">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                addNote("B", inputB);
+              }}
+              className="flex gap-2"
+            >
+              <input
+                type="text"
+                value={inputB}
+                onChange={(e) => setInputB(e.target.value)}
+                placeholder="Type a message offline/online..."
+                className="flex-1 px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
+              />
+              <button
+                type="submit"
+                className="bg-black text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-800 flex items-center gap-2"
+              >
+                <Save className="w-4 h-4" /> Save
+              </button>
+            </form>
+          </div>
+        </div>
       </main>
 
       {/* INFO FOOTER */}

@@ -122,6 +122,12 @@ export default function LandingPage() {
             >
               <Zap className="w-4 h-4" /> Playground
             </Link>
+            <Link
+              href="/dev"
+              className="text-slate-900 font-semibold hover:text-black transition-colors flex items-center gap-1.5"
+            >
+              <Terminal className="w-4 h-4" /> Dev
+            </Link>
           </nav>
           <div className="flex items-center gap-2 sm:gap-4">
             <ThemeToggle />
@@ -339,6 +345,13 @@ export default function LandingPage() {
           >
             <Zap className="w-4 h-4 animate-pulse" />
             Try Playground
+          </Link>
+          <Link
+            href="/dev"
+            className="flex items-center gap-2 bg-slate-900 text-white px-6 py-3.5 rounded-xl font-medium text-base hover:bg-slate-800 transition-all w-full sm:w-auto justify-center shadow-sm"
+          >
+            <Terminal className="w-4 h-4" />
+            Dev Dashboard
           </Link>
           <a
             href="https://github.com/Zerith-Labs/ZerithDB"
