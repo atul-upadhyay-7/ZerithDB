@@ -70,3 +70,14 @@ export interface ConflictResolver {
     | null
     | Promise<Uint8Array | { update: Uint8Array; suggestion?: string } | null>;
 }
+/**
+ * Defines how sync updates are encoded and decoded for network transmission.
+ * Swapping the protocol allows for hot-reloading different wire formats
+ * (e.g. binary, JSON, encrypted) without restarting the sync engine.
+ */
+export interface SyncProtocol {
+  readonly name: string;
+  readonly version: string;
+  encode(collectionName: string, update: Uint8Array): string | Uint8Array;
+  decode(data: string | Uint8Array): { collectionName: string; update: Uint8Array } | null;
+}
